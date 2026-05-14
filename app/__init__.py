@@ -15,6 +15,7 @@ from .routes import bp
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    _validate_security_config(app)
 
     db.init_app(app)
     csrf.init_app(app)
@@ -65,3 +66,12 @@ def _configure_optional_monitoring(app: Flask) -> None:
         import flask_monitoringdashboard as dashboard
 
         dashboard.bind(app)
+
+
+def _validate_security_config(app: Flask) -> None:
+    is_testing = app.config.get("TESTING", False)
+    is_production = app.config.get("FLASK_ENV") == "production"
+    if is_production and not app.config.get("SECRET_KEY"):
+        raise RuntimeError("SECRET_KEY must be set in production.")
+    if is_production and not app.config.get("ADMIN_PASSWORD"):
+        raise RuntimeError("ADMIN_PASSWORD must be set.")

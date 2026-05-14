@@ -2,12 +2,18 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="mb-0">Admin Dashboard</h1>
-  <a class="btn btn-outline-light" href="{{ url_for('main.export_csv') }}">Export CSV</a>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-light" href="{{ url_for('main.export_csv') }}">Export CSV</a>
+    <a class="btn btn-outline-light" href="{{ url_for('main.export_pdf') }}">Export PDF</a>
+  </div>
 </div>
 
 <div class="card bg-dark border-secondary mb-3">
   <div class="card-body">
-    <canvas id="riskChart" height="100"></canvas>
+    <h5 class="card-title">Risk score trend</h5>
+    <svg viewBox="0 0 100 100" class="w-100 border border-secondary rounded bg-black" style="height: 220px;">
+      <polyline fill="none" stroke="#dc3545" stroke-width="2" points="{{ chart_points }}"></polyline>
+    </svg>
   </div>
 </div>
 
@@ -30,22 +36,4 @@
     </table>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-new Chart(document.getElementById('riskChart'), {
-  type: 'line',
-  data: {
-    labels: {{ chart_labels | tojson }},
-    datasets: [{
-      label: 'Risk score trend',
-      data: {{ chart_scores | tojson }},
-      borderColor: '#dc3545'
-    }]
-  },
-  options: { responsive: true }
-});
-</script>
 {% endblock %}

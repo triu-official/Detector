@@ -1,11 +1,13 @@
 import os
+import secrets
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
 class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "change-this-in-production")
+    FLASK_ENV = os.getenv("FLASK_ENV", "development")
+    SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///detector.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_TIME_LIMIT = None
@@ -17,5 +19,5 @@ class Config:
     REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "5"))
     MODEL_PATH = os.getenv("MODEL_PATH", "")
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", secrets.token_urlsafe(16))
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")

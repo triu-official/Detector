@@ -9,7 +9,7 @@ Production-oriented suspicious website detector built with Flask.
 - Redirect-chain tracing with loop/depth limits
 - Local blacklist checks
 - Explainable result reasons + optional ML model (`MODEL_PATH` via joblib)
-- Admin dashboard with trend chart + CSV export
+- Admin dashboard with trend chart + CSV/PDF export
 - API endpoints: `/api/analyze`, `/api/reports`
 - Health/metrics endpoints: `/health`, `/metrics`
 - Security essentials: CSRF, rate limiting, CORS for API, security headers, env-based secrets, ORM-backed persistence
@@ -39,9 +39,11 @@ docker compose up --build
 - `REDIS_URL`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
+- `POSTGRES_PASSWORD` (required for docker-compose)
 - `MODEL_PATH`
 - `SENTRY_DSN`
 - `CORS_ORIGINS`
 
 ## Demo notes
 Use `/disclaimer`, `/privacy`, and `/terms` pages for compliance coverage in demos.
+Set strong `SECRET_KEY` and `ADMIN_PASSWORD` values before production deployment.

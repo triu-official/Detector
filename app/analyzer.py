@@ -1,10 +1,10 @@
 import ipaddress
 import os
-import re
+import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import joblib
 import requests
@@ -35,7 +35,20 @@ def validate_url(raw_url: str) -> tuple[bool, str]:
         return False, "Only http/https URLs are allowed"
     if not parsed.netloc:
         return False, "URL must include a valid domain"
+    if not _is_safe_public_host(parsed.hostname):
+        return False, "URL points to a private or local network address"
     return True, ""
+
+
+def _is_safe_public_host(host: str | None) -> bool:
+    if not host:
+        return False
+    try:
+        resolved = socket.gethostbyname(host)
+    except socket.gaierror:
+        return True
+    ip = ipaddress.ip_address(resolved)
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)
 
 
 def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
@@ -89,7 +102,11 @@ def get_domain_intelligence(url: str) -> tuple[dict[str, Any], list[str]]:
         if isinstance(creation, list):
             creation = creation[0]
         if isinstance(creation, datetime):
-            age_days = max((datetime.now(timezone.utc) - creation.replace(tzinfo=timezone.utc)).days, 0)
+            if creation.tzinfo is None:
+                creation_utc = creation.replace(tzinfo=timezone.utc)
+            else:
+                creation_utc = creation.astimezone(timezone.utc)
+            age_days = max((datetime.now(timezone.utc) - creation_utc).days, 0)
             info["domain_age_days"] = age_days
             if age_days < 90:
                 reasons.append("Domain is very new")
@@ -115,7 +132,10 @@ def trace_redirect_chain(url: str, timeout: int, max_depth: int) -> tuple[list[s
             break
 
         if response.is_redirect and response.headers.get("Location"):
-            nxt = response.headers["Location"]
+            nxt = urljoin(current, response.headers["Location"])
+            if not _is_safe_public_host(urlparse(nxt).hostname):
+                reasons.append("Redirect targets a private or local address")
+                break
             if nxt in seen:
                 reasons.append("Redirect loop detected")
                 break

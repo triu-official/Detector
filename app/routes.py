@@ -6,11 +6,12 @@ from functools import wraps
 
 from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
+from weasyprint import HTML
 
 from .analyzer import analyze_url
 from .extensions import csrf, db, limiter
 from .forms import LoginForm, URLForm
-from .models import Analysis, Blacklist, History, User
+from .models import Analysis, Blacklist, History, Report, User
 
 bp = Blueprint("main", __name__)
 
@@ -101,7 +102,22 @@ def dashboard():
     analyses = Analysis.query.order_by(Analysis.created_at.desc()).limit(20).all()
     chart_labels = [a.created_at.strftime("%Y-%m-%d %H:%M") for a in reversed(analyses)]
     chart_scores = [a.risk_score for a in reversed(analyses)]
-    return render_template("dashboard.html", analyses=analyses, chart_labels=chart_labels, chart_scores=chart_scores)
+    point_count = len(chart_scores)
+    points: list[str] = []
+    if point_count == 1:
+        points = [f"0,{100 - chart_scores[0]}"]
+    elif point_count > 1:
+        for idx, score in enumerate(chart_scores):
+            x = int((idx / (point_count - 1)) * 100)
+            y = 100 - score
+            points.append(f"{x},{y}")
+    return render_template(
+        "dashboard.html",
+        analyses=analyses,
+        chart_labels=chart_labels,
+        chart_scores=chart_scores,
+        chart_points=" ".join(points),
+    )
 
 
 @bp.route("/reports/export.csv")
@@ -113,10 +129,27 @@ def export_csv():
     writer.writerow(["timestamp", "url", "score", "verdict"])
     for a in analyses:
         writer.writerow([a.created_at.isoformat(), a.url, a.risk_score, a.verdict])
+    db.session.add(Report(title="CSV export", content=f"Exported {len(analyses)} analysis rows"))
+    db.session.commit()
     return Response(
         output.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=detector-report.csv"},
+    )
+
+
+@bp.route("/reports/export.pdf")
+@login_required
+def export_pdf():
+    analyses = Analysis.query.order_by(Analysis.created_at.desc()).limit(100).all()
+    html = render_template("report_pdf.html", analyses=analyses)
+    pdf_bytes = HTML(string=html).write_pdf()
+    db.session.add(Report(title="PDF export", content=f"Exported {len(analyses)} analysis rows"))
+    db.session.commit()
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=detector-report.pdf"},
     )
 
 
@@ -134,8 +167,11 @@ def api_analyze():
             blacklist_domains=_blacklist_domains(),
             model_path=current_app.config["MODEL_PATH"],
         )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid URL input"}), 400
+    except Exception:
+        current_app.logger.exception("Unexpected analysis failure")
+        return jsonify({"error": "Unable to process the URL"}), 500
 
     analysis = _persist_analysis(result, session.get("user_id"))
     return jsonify(
@@ -153,6 +189,8 @@ def api_analyze():
 
 @bp.route("/api/reports")
 @csrf.exempt
+@login_required
+@limiter.limit("20/minute")
 def api_reports():
     analyses = Analysis.query.order_by(Analysis.created_at.desc()).limit(50).all()
     return jsonify(
