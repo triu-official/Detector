@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <h1 class="mb-3">Suspicious Website Detector</h1>
+    <p class="text-secondary">Scan a URL for phishing indicators, redirect behavior, and domain risk signals.</p>
+    <form method="post" action="{{ url_for('main.analyze') }}" id="analyze-form" class="card card-body bg-dark border-secondary">
+      {{ form.csrf_token }}
+      <label class="form-label" for="url">URL</label>
+      {{ form.url(class_="form-control", placeholder="https://example.com") }}
+      <button class="btn btn-primary mt-3" type="submit">
+        <span class="spinner-border spinner-border-sm d-none" id="submit-spinner"></span>
+        Analyze
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

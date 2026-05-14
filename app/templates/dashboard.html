@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="mb-0">Admin Dashboard</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-light" href="{{ url_for('main.export_csv') }}">Export CSV</a>
+    <a class="btn btn-outline-light" href="{{ url_for('main.export_pdf') }}">Export PDF</a>
+  </div>
+</div>
+
+<div class="card bg-dark border-secondary mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Risk score trend</h5>
+    <svg viewBox="0 0 100 100" class="w-100 border border-secondary rounded bg-black" style="height: 220px;">
+      <polyline fill="none" stroke="#dc3545" stroke-width="2" points="{{ chart_points }}"></polyline>
+    </svg>
+  </div>
+</div>
+
+<div class="card bg-dark border-secondary">
+  <div class="table-responsive">
+    <table class="table table-dark table-striped mb-0">
+      <thead>
+        <tr><th>Time</th><th>URL</th><th>Score</th><th>Verdict</th></tr>
+      </thead>
+      <tbody>
+        {% for row in analyses %}
+        <tr>
+          <td>{{ row.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td class="small">{{ row.url }}</td>
+          <td>{{ row.risk_score }}</td>
+          <td>{{ row.verdict }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

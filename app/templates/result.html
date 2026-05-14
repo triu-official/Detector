@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-md-5">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body">
+        <h5 class="card-title">Risk Verdict</h5>
+        <h2>{{ result.score }} / 100</h2>
+        <p class="badge {% if result.verdict == 'high-risk' %}bg-danger{% elif result.verdict == 'suspicious' %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ result.verdict }}</p>
+        <p class="mt-2 mb-0"><strong>URL:</strong> {{ result.url }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body">
+        <h5 class="card-title">Why this was flagged</h5>
+        <ul>
+          {% for reason in result.reasons %}
+          <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card bg-dark border-secondary mt-3">
+  <div class="card-body">
+    <h5 class="card-title">Redirect chain</h5>
+    <ol class="mb-0">
+      {% for item in result.redirect_chain %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://detector:${POSTGRES_PASSWORD:?set in .env}@db:5432/detector
+      REDIS_URL: redis://redis:6379/0
+      FLASK_ENV: production
+    depends_on:
+      - db
+      - redis
+    command: gunicorn -c gunicorn.conf.py run:app
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./app/static:/var/www/static:ro
+    depends_on:
+      - web
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: detector
+      POSTGRES_USER: detector
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  pgdata:

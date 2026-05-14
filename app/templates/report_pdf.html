@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+      h1 { margin-bottom: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Detector Report</h1>
+    <table>
+      <thead>
+        <tr><th>Timestamp</th><th>URL</th><th>Score</th><th>Verdict</th></tr>
+      </thead>
+      <tbody>
+      {% for row in analyses %}
+        <tr>
+          <td>{{ row.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td>{{ row.url }}</td>
+          <td>{{ row.risk_score }}</td>
+          <td>{{ row.verdict }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>
