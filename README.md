@@ -47,3 +47,15 @@ docker compose up --build
 ## Demo notes
 Use `/disclaimer`, `/privacy`, and `/terms` pages for compliance coverage in demos.
 Set strong `SECRET_KEY` and `ADMIN_PASSWORD` values before production deployment.
+
+## Next.js migration implementation assets
+If you want to execute a spec-first migration from this Flask app to a production-grade Next.js + TypeScript stack, use:
+
+- `docs/nextjs-migration-playbook.md`
+- `docs/copilot-prompts-nextjs-migration.md`
+
+These documents provide:
+- scope decision guidance (rewrite vs keep Flask),
+- mandatory product decisions before coding,
+- phased implementation with definition of done,
+- copy-paste Copilot prompts in strict file-batch order.
