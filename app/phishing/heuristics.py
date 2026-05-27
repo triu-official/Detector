@@ -137,7 +137,15 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
     return features, reasons
 
 
-def get_domain_intelligence(host: str, cache_get, cache_set, ttl_seconds: int) -> tuple[dict[str, Any], list[str]]:
+def get_domain_intelligence(
+    host: str,
+    cache_get,
+    cache_set,
+    ttl_seconds: int,
+    *,
+    new_domain_days: int,
+    young_domain_days: int,
+) -> tuple[dict[str, Any], list[str]]:
     cache_key = f"domain-intel:{host}"
     cached = cache_get(cache_key)
     if cached:
@@ -156,10 +164,10 @@ def get_domain_intelligence(host: str, cache_get, cache_set, ttl_seconds: int) -
             )
             age_days = max((datetime.now(timezone.utc) - creation_utc).days, 0)
             info["domain_age_days"] = age_days
-            if age_days < 7:
-                reasons.append("Domain registered less than 7 days ago")
-            elif age_days < 30:
-                reasons.append("Domain registered less than 30 days ago")
+            if age_days < new_domain_days:
+                reasons.append(f"Domain registered less than {new_domain_days} days ago")
+            elif age_days < young_domain_days:
+                reasons.append(f"Domain registered less than {young_domain_days} days ago")
         registrar = getattr(data, "registrar", None)
         if registrar:
             info["registrar"] = str(registrar)

@@ -50,6 +50,10 @@ Change these before production use, or set `ADMIN_PASSWORD_HASH` instead.
 | `SAFE_THRESHOLD` | Safe label threshold |
 | `SUSPICIOUS_THRESHOLD` | Suspicious label threshold |
 | `PHISHING_THRESHOLD` | Phishing label threshold |
+| `NEW_DOMAIN_DAYS` | Day threshold for a very new domain |
+| `YOUNG_DOMAIN_DAYS` | Day threshold for a recently registered domain |
+| `NEW_DOMAIN_PENALTY` | Score penalty for very new domains |
+| `YOUNG_DOMAIN_PENALTY` | Score penalty for recently registered domains |
 
 ## Running tests and checks
 

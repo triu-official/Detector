@@ -55,6 +55,7 @@ def create_app(config_class: type[BaseConfig] | None = None):
     app.register_blueprint(admin_bp)
 
     with app.app_context():
+        _validate_runtime_config(app)
         db.create_all()
         _sync_admin_user(app)
         runtime_state.model_loaded = bool(app.config["MODEL_PATH"])
@@ -133,6 +134,13 @@ def create_app(config_class: type[BaseConfig] | None = None):
 def _sync_admin_user(app: Flask) -> None:
     password_hash = app.config["ADMIN_PASSWORD_HASH"] or generate_password_hash(app.config["ADMIN_PASSWORD"])
     User.sync_admin_user(app.config["ADMIN_USERNAME"], password_hash)
+
+
+def _validate_runtime_config(app: Flask) -> None:
+    if app.config["FLASK_ENV"] == "production" and not (
+        app.config["ADMIN_PASSWORD_HASH"] or app.config["ADMIN_PASSWORD"]
+    ):
+        raise RuntimeError("ADMIN_PASSWORD_HASH or ADMIN_PASSWORD must be set in production.")
 
 
 def gather_health_snapshot() -> dict:

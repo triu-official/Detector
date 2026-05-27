@@ -111,7 +111,11 @@ function setupAnalyzeForm() {
         body: JSON.stringify({ url }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message || 'Unable to analyze URL');
+      if (!response.ok) {
+        throw new Error(
+          payload.error?.message || 'Unable to analyze URL. Check the address and try again.',
+        );
+      }
       renderResult(resultContent, payload);
       prependRecentResult(payload);
       if (

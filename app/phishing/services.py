@@ -195,10 +195,10 @@ def score_analysis(features: dict[str, float], reasons: list[str], config: dict[
     score += int(features["external_form_action"] * 12)
     score += min(int(features["external_script_count"] * 3), 9)
     score += min(int(features["redirect_count"] * 3), 12)
-    if 0 < features["domain_age_days"] < 7:
-        score += 20
-    elif 0 < features["domain_age_days"] < 30:
-        score += 10
+    if 0 < features["domain_age_days"] < config["NEW_DOMAIN_DAYS"]:
+        score += config["NEW_DOMAIN_PENALTY"]
+    elif 0 < features["domain_age_days"] < config["YOUNG_DOMAIN_DAYS"]:
+        score += config["YOUNG_DOMAIN_PENALTY"]
     if features["blacklisted"]:
         score = max(score, 95)
     if any("HTTP 4" in reason or "HTTP 5" in reason for reason in reasons):
@@ -271,6 +271,8 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         cache_get=_cache_get,
         cache_set=_cache_set,
         ttl_seconds=config["DOMAIN_CACHE_TTL_SECONDS"],
+        new_domain_days=config["NEW_DOMAIN_DAYS"],
+        young_domain_days=config["YOUNG_DOMAIN_DAYS"],
     )
     features["domain_age_days"] = float(domain_info.get("domain_age_days", 0))
     reasons.extend(domain_reasons)

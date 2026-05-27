@@ -5,7 +5,7 @@ services:
     build: .
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql://detector:${POSTGRES_PASSWORD:?missing required value}@db:5432/detector
+      DATABASE_URL: postgresql://detector:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable is required}@db:5432/detector
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: production
       SESSION_COOKIE_SECURE: "true"
@@ -27,7 +27,7 @@ services:
     build: .
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql://detector:${POSTGRES_PASSWORD:?missing required value}@db:5432/detector
+      DATABASE_URL: postgresql://detector:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable is required}@db:5432/detector
       REDIS_URL: redis://redis:6379/0
       FLASK_ENV: production
     depends_on:
@@ -42,7 +42,7 @@ services:
     environment:
       POSTGRES_DB: detector
       POSTGRES_USER: detector
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?missing required value}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable is required}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
