@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card offline-page">
+  <h1>You're offline</h1>
+  <p>The app shell is still available. Recent results cached in your browser remain accessible below.</p>
+  <button id="retry-online" class="primary-button" type="button">Try again when online</button>
+  <div id="offline-results" class="recent-results"></div>
+</section>
+{% endblock %}

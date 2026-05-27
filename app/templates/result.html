@@ -1,38 +1,45 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="row g-3">
-  <div class="col-md-5">
-    <div class="card bg-dark border-secondary h-100">
-      <div class="card-body">
-        <h5 class="card-title">Risk Verdict</h5>
-        <h2>{{ result.score }} / 100</h2>
-        <p class="badge {% if result.verdict == 'high-risk' %}bg-danger{% elif result.verdict == 'suspicious' %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ result.verdict }}</p>
-        <p class="mt-2 mb-0"><strong>URL:</strong> {{ result.url }}</p>
-      </div>
+<article class="card result-page">
+  <div class="result-heading">
+    <div>
+      <p class="eyebrow">Analysis #{{ analysis.id }}</p>
+      <h1>{{ serialized.domain }}</h1>
+      <p class="muted">{{ serialized.url }}</p>
     </div>
+    <div class="score-block pill pill-{{ serialized.label }}">{{ serialized.risk_score }}/100 · {{ serialized.label }}</div>
   </div>
-  <div class="col-md-7">
-    <div class="card bg-dark border-secondary h-100">
-      <div class="card-body">
-        <h5 class="card-title">Why this was flagged</h5>
-        <ul>
-          {% for reason in result.reasons %}
+  <div class="grid two-up">
+    <section>
+      <h2>Reachability</h2>
+      <p>{{ serialized.reachability.replace('_', ' ') }}</p>
+      {% if serialized.status_code %}<p>Status code: {{ serialized.status_code }}</p>{% endif %}
+      {% if serialized.error %}<p>{{ serialized.error.message }}</p>{% endif %}
+      <h3>Reasons</h3>
+      <ul class="bullet-list">
+        {% for reason in serialized.reasons %}
           <li>{{ reason }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-    </div>
+        {% endfor %}
+      </ul>
+    </section>
+    <section>
+      <h2>Feature summary</h2>
+      <dl class="key-value">
+        {% for key, value in serialized.features_summary.feature_counts.items() %}
+          <div><dt>{{ key.replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>
+        {% endfor %}
+      </dl>
+      <h3>Redirect chain</h3>
+      <ol class="bullet-list">
+        {% for item in serialized.redirect_chain %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ol>
+    </section>
   </div>
-</div>
-
-<div class="card bg-dark border-secondary mt-3">
-  <div class="card-body">
-    <h5 class="card-title">Redirect chain</h5>
-    <ol class="mb-0">
-      {% for item in result.redirect_chain %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ol>
-  </div>
-</div>
+  <form id="feedback-form" class="inline-form" method="post" action="{{ url_for('phishing.feedback', analysis_id=analysis.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="ghost-button" type="submit">This result seems wrong</button>
+  </form>
+</article>
 {% endblock %}

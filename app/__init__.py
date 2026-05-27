@@ -1,77 +1,127 @@
-import logging
-from logging.handlers import RotatingFileHandler
+from __future__ import annotations
+
 import os
+import time
+from pathlib import Path
 
-from flask import Flask
-from flask_cors import CORS
-import sentry_sdk
+from flask import Flask, g, jsonify, render_template, request
+from werkzeug.security import generate_password_hash
 
-from .config import Config
-from .extensions import csrf, db, limiter
-from .models import User
-from .routes import bp
+from .admin import bp as admin_bp
+from .config import BaseConfig, CONFIG_MAP
+from .extensions import configure_redis, csrf, db, error_buffer, limiter, login_manager, migrate, record_error, redis_client, runtime_state
+from .models import RequestLog, User
+from .phishing import bp as phishing_bp
+from .security import configure_logging, configure_security
 
 
-def create_app(config_class=Config):
+def create_app(config_class: type[BaseConfig] | None = None):
     app = Flask(__name__)
-    app.config.from_object(config_class)
-    _validate_security_config(app)
+    config_source = config_class or CONFIG_MAP.get(os.getenv('FLASK_ENV', 'development'), CONFIG_MAP['development'])
+    app.config.from_object(config_source)
+    Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
+    login_manager.init_app(app)
+    migrate.init_app(app, db)
+    configure_redis(app.config['REDIS_URL'])
+    configure_logging(app)
+    configure_security(app)
 
-    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    login_manager.login_view = 'admin.login'
+    login_manager.login_message_category = 'warning'
 
-    if os.getenv("SENTRY_DSN"):
-        sentry_sdk.init(dsn=os.getenv("SENTRY_DSN"), traces_sample_rate=0.1)
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        return User.query.get(int(user_id))
 
-    app.register_blueprint(bp)
+    app.register_blueprint(phishing_bp)
+    app.register_blueprint(admin_bp)
 
     with app.app_context():
         db.create_all()
-        User.create_admin_if_missing(app.config["ADMIN_USERNAME"], app.config["ADMIN_PASSWORD"])
+        _sync_admin_user(app)
+        runtime_state.model_loaded = bool(app.config['MODEL_PATH'])
 
-    _configure_logging(app)
-    _configure_security_headers(app)
-    _configure_optional_monitoring(app)
+    @app.context_processor
+    def inject_shell_context():
+        return {'app_name': 'Detector PWA'}
+
+    @app.errorhandler(404)
+    def not_found(_error):
+        return render_template('errors/404.html', page_title='Page not found'), 404
+
+    @app.errorhandler(500)
+    def server_error(error):
+        record_error(str(error), path=request.path, error_type='server_error')
+        return render_template('errors/500.html', page_title='Server error'), 500
+
+    @app.errorhandler(503)
+    def unavailable(_error):
+        return render_template('errors/503.html', page_title='Unavailable'), 503
+
+    @app.route('/health')
+    def health():
+        return jsonify(gather_health_snapshot())
+
+    @app.route('/metrics')
+    def metrics():
+        from .models import Analysis
+
+        total = Analysis.query.count()
+        safe = Analysis.query.filter_by(label='safe').count()
+        suspicious = Analysis.query.filter_by(label='suspicious').count()
+        phishing = Analysis.query.filter_by(label='phishing').count()
+        avg_latency = db.session.query(db.func.avg(Analysis.latency_ms)).scalar() or 0
+        body = [
+            f'detector_total_analyses {total}',
+            f'detector_safe_analyses {safe}',
+            f'detector_suspicious_analyses {suspicious}',
+            f'detector_phishing_analyses {phishing}',
+            f'detector_avg_latency_ms {avg_latency:.2f}',
+        ]
+        return '\n'.join(body) + '\n', 200, {'Content-Type': 'text/plain; version=0.0.4'}
+
+    @app.after_request
+    def store_request_log(response):
+        try:
+            duration_ms = int((time.perf_counter() - getattr(g, 'started_at', time.perf_counter())) * 1000)
+            db.session.add(RequestLog(method=request.method, path=request.path, status_code=response.status_code, duration_ms=duration_ms))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        return response
 
     return app
 
 
-def _configure_logging(app: Flask) -> None:
-    os.makedirs("instance", exist_ok=True)
-    handler = RotatingFileHandler("instance/detector.log", maxBytes=5_000_000, backupCount=3)
-    handler.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    handler.setFormatter(formatter)
-    app.logger.setLevel(logging.INFO)
-    app.logger.addHandler(handler)
+
+def _sync_admin_user(app: Flask) -> None:
+    password_hash = app.config['ADMIN_PASSWORD_HASH'] or generate_password_hash(app.config['ADMIN_PASSWORD'])
+    User.sync_admin_user(app.config['ADMIN_USERNAME'], password_hash)
 
 
 
-def _configure_security_headers(app: Flask) -> None:
-    @app.after_request
-    def set_headers(response):
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net"
-        return response
+def gather_health_snapshot() -> dict:
+    from .models import Analysis
 
-
-
-def _configure_optional_monitoring(app: Flask) -> None:
-    if os.getenv("ENABLE_FLASK_MONITORING", "false").lower() == "true":
-        import flask_monitoringdashboard as dashboard
-
-        dashboard.bind(app)
-
-
-def _validate_security_config(app: Flask) -> None:
-    is_testing = app.config.get("TESTING", False)
-    is_production = app.config.get("FLASK_ENV") == "production"
-    if is_production and not app.config.get("SECRET_KEY"):
-        raise RuntimeError("SECRET_KEY must be set in production.")
-    if is_production and not app.config.get("ADMIN_PASSWORD"):
-        raise RuntimeError("ADMIN_PASSWORD must be set.")
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        db_ok = True
+    except Exception:
+        db_ok = False
+    try:
+        redis_ok = bool(redis_client.ping())
+    except Exception:
+        redis_ok = False
+    return {
+        'status': 'ok' if db_ok else 'degraded',
+        'database': db_ok,
+        'redis': redis_ok,
+        'model_loaded': runtime_state.model_loaded,
+        'last_error': runtime_state.last_error,
+        'recent_errors': list(error_buffer),
+        'total_analyses': Analysis.query.count() if db_ok else 0,
+    }

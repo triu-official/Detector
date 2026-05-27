@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card narrow-card">
+  <h1>Admin login</h1>
+  <form method="post">
+    {{ form.csrf_token }}
+    <label for="username">Username</label>
+    {{ form.username(class_='input') }}
+    <label for="password">Password</label>
+    {{ form.password(class_='input') }}
+    <button class="primary-button" type="submit">Sign in</button>
+  </form>
+</section>
+{% endblock %}

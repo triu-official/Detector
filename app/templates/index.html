@@ -1,18 +1,63 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-lg-8">
-    <h1 class="mb-3">Suspicious Website Detector</h1>
-    <p class="text-secondary">Scan a URL for phishing indicators, redirect behavior, and domain risk signals.</p>
-    <form method="post" action="{{ url_for('main.analyze') }}" id="analyze-form" class="card card-body bg-dark border-secondary">
-      {{ form.csrf_token }}
-      <label class="form-label" for="url">URL</label>
-      {{ form.url(class_="form-control", placeholder="https://example.com") }}
-      <button class="btn btn-primary mt-3" type="submit">
-        <span class="spinner-border spinner-border-sm d-none" id="submit-spinner"></span>
-        Analyze
-      </button>
-    </form>
+<section class="hero card">
+  <div>
+    <p class="eyebrow">Installable PWA</p>
+    <h1>Scan URLs live, securely, and offline-aware.</h1>
+    <p class="lede">The Flask backend handles heuristic + ML-ready detection while the frontend behaves like a fast installable app with cached recent results.</p>
+    <div class="hero-actions">
+      <button id="install-button" class="ghost-button hidden" type="button">Add to Home Screen</button>
+      <button id="notify-button" class="ghost-button" type="button">Enable notifications</button>
+    </div>
   </div>
-</div>
+  <div class="status-panel">
+    <div><strong>Health</strong><span id="network-status">Online</span></div>
+    <div><strong>Cached results</strong><span id="cached-count">0</span></div>
+  </div>
+</section>
+
+<section class="grid two-up">
+  <article class="card">
+    <h2>Analyze a website</h2>
+    <form id="analyze-form" method="post" action="{{ url_for('phishing.api_analyze') }}">
+      {{ form.csrf_token }}
+      <label for="url">URL or domain</label>
+      {{ form.url(class_='input', placeholder='https://example.com or example.com') }}
+      <button class="primary-button" type="submit">Analyze now</button>
+      <p class="helper">Results are cached for repeated lookups and rendered without reloading the page.</p>
+    </form>
+    <div id="analysis-error" class="flash flash-error hidden"></div>
+  </article>
+  <article class="card" id="result-card">
+    <h2>Latest result</h2>
+    <p class="muted">Run an analysis to see score, reachability, redirect chain, and explainable reasons.</p>
+    <div id="result-content"></div>
+  </article>
+</section>
+
+<section class="grid two-up">
+  <article class="card">
+    <h2>Recent analyses</h2>
+    <div id="recent-results" class="recent-results">
+      {% for item in recent %}
+        <a class="recent-item" href="{{ url_for('phishing.result_detail', analysis_id=item.id) }}">
+          <span class="pill pill-{{ item.label }}">{{ item.label }}</span>
+          <strong>{{ item.domain }}</strong>
+          <small>{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+        </a>
+      {% else %}
+        <p class="muted">No scans yet.</p>
+      {% endfor %}
+    </div>
+  </article>
+  <article class="card">
+    <h2>Offline mode</h2>
+    <p>Install the app to keep the shell, the last ten result pages, and your recent local analyses available when the network drops.</p>
+    <ul class="bullet-list">
+      <li>Last result pages cached by the service worker</li>
+      <li>Last browser-local analyses persisted for quick access</li>
+      <li>Notifications when a scan returns a risky label</li>
+    </ul>
+  </article>
+</section>
 {% endblock %}

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="grid three-up stats-grid">
+  <article class="card"><h2>Total analyses</h2><p class="stat">{{ total }}</p></article>
+  <article class="card"><h2>% phishing</h2><p class="stat">{{ phishing_pct }}%</p></article>
+  <article class="card"><h2>Top phishing domain</h2><p class="stat">{{ top_domains[0][0] if top_domains else '—' }}</p></article>
+</section>
+
+<section class="grid two-up">
+  <article class="card">
+    <div class="section-heading">
+      <h2>Daily label trends</h2>
+      <a class="ghost-button" href="{{ url_for('admin.health_page') }}">System health</a>
+    </div>
+    <div class="trend-bars">
+      {% for row in trends %}
+        <div class="trend-row">
+          <span>{{ row.day }}</span>
+          <div class="bars">
+            <span class="bar safe" style="width: {{ row.safe * 18 + 8 }}px"></span>
+            <span class="bar suspicious" style="width: {{ row.suspicious * 18 + 8 }}px"></span>
+            <span class="bar phishing" style="width: {{ row.phishing * 18 + 8 }}px"></span>
+          </div>
+        </div>
+      {% else %}
+        <p class="muted">Not enough data yet.</p>
+      {% endfor %}
+    </div>
+    <h3>Top phishing domains</h3>
+    <ul class="bullet-list">
+      {% for domain, count in top_domains %}
+        <li>{{ domain }} — {{ count }}</li>
+      {% else %}
+        <li>No phishing-labelled domains yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="card">
+    <h2>Bulk CSV analysis</h2>
+    <form method="post" action="{{ url_for('admin.batch_analyze') }}" enctype="multipart/form-data">
+      {{ batch_form.csrf_token }}
+      {{ batch_form.file(class_='input') }}
+      <button class="primary-button" type="submit">Analyze CSV</button>
+      <p class="helper">Upload a CSV with a <code>url</code> column.</p>
+    </form>
+    <div class="action-row">
+      <a class="ghost-button" href="{{ url_for('admin.export_csv') }}">Export CSV</a>
+      <a class="ghost-button" href="{{ url_for('admin.export_pdf') }}">Export PDF</a>
+    </div>
+  </article>
+</section>
+
+<section class="grid two-up">
+  <article class="card">
+    <h2>Manual blacklist</h2>
+    <form method="post" action="{{ url_for('admin.add_blacklist_entry') }}">
+      {{ blacklist_form.csrf_token }}
+      {{ blacklist_form.domain(class_='input', placeholder='bad-domain.example') }}
+      {{ blacklist_form.reason(class_='input', rows='3', placeholder='Reason') }}
+      <button class="primary-button" type="submit">Add domain</button>
+    </form>
+    <div class="table-list">
+      {% for entry in blacklist %}
+        <div class="table-row">
+          <div>
+            <strong>{{ entry.domain }}</strong>
+            <small>{{ entry.reason or 'No reason provided' }} · {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+          </div>
+          <form method="post" action="{{ url_for('admin.delete_blacklist_entry', entry_id=entry.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="ghost-button" type="submit">Remove</button>
+          </form>
+        </div>
+      {% else %}
+        <p class="muted">Blacklist is empty.</p>
+      {% endfor %}
+    </div>
+  </article>
+  <article class="card">
+    <h2>Recent analyses</h2>
+    <div class="table-list">
+      {% for row in reports.items %}
+        <a class="table-row" href="{{ url_for('phishing.result_detail', analysis_id=row.id) }}">
+          <div>
+            <strong>{{ row.domain }}</strong>
+            <small>{{ row.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+          </div>
+          <div class="pill pill-{{ row.label }}">{{ row.label }} · {{ row.risk_score }}</div>
+        </a>
+      {% else %}
+        <p class="muted">No analyses found.</p>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endblock %}

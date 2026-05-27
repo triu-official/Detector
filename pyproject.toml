@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 120
+exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["B008"]

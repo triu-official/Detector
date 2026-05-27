@@ -1,61 +1,88 @@
 # Detector
 
-Production-oriented suspicious website detector built with Flask.
-
-## Features
-- URL phishing heuristics (length, subdomains, IP usage, suspicious chars, keywords, shorteners)
-- Domain intelligence (WHOIS age and registrar checks)
-- Page analysis (forms, iframes, redirects)
-- Redirect-chain tracing with loop/depth limits
-- Local blacklist checks
-- Explainable result reasons + optional ML model (`MODEL_PATH` via joblib)
-- Admin dashboard with trend chart + CSV/PDF export
-- API endpoints: `/api/analyze`, `/api/reports`
-- Health/metrics endpoints: `/health`, `/metrics`
-- Security essentials: CSRF, rate limiting, CORS for API, security headers, env-based secrets, ORM-backed persistence
-- Legal pages: disclaimer, privacy, terms
+Production-ready suspicious website detector built as a Flask backend with an installable PWA frontend.
 
 ## Quick start
+
 ```bash
+cp .env.example .env
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python run.py
 ```
 
-## Production run
-```bash
-gunicorn -c gunicorn.conf.py run:app
-```
+## Docker quick start
 
-## Docker
 ```bash
 docker compose up --build
 ```
 
+## Default local admin credentials
+
+- Username: `admin`
+- Password: value from `ADMIN_PASSWORD` in `.env`
+
+Change these before production use, or set `ADMIN_PASSWORD_HASH` instead.
+
+## Access URLs
+
+- App: http://localhost:5000
+- Admin dashboard: http://localhost:5000/admin
+- Health: http://localhost:5000/health
+- Metrics: http://localhost:5000/metrics
+
 ## Environment variables
-- `SECRET_KEY`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
-- `POSTGRES_PASSWORD` (required for docker-compose)
-- `MODEL_PATH`
-- `SENTRY_DSN`
-- `CORS_ORIGINS`
 
-## Demo notes
-Use `/disclaimer`, `/privacy`, and `/terms` pages for compliance coverage in demos.
-Set strong `SECRET_KEY` and `ADMIN_PASSWORD` values before production deployment.
+| Variable | Purpose |
+| --- | --- |
+| `SECRET_KEY` | Flask session and CSRF secret |
+| `DATABASE_URL` | SQLAlchemy connection string |
+| `REDIS_URL` | Redis cache and Celery broker URL |
+| `ADMIN_USERNAME` | Admin account username |
+| `ADMIN_PASSWORD` | Local/dev admin password |
+| `ADMIN_PASSWORD_HASH` | Preferred production password hash |
+| `MODEL_PATH` | Optional joblib model path |
+| `SENTRY_DSN` | Optional Sentry DSN |
+| `ANALYZE_RATE_LIMIT` | Public analyze rate limit |
+| `ADMIN_RATE_LIMIT` | Admin route rate limit |
+| `REPORTS_RATE_LIMIT` | Public reports/export rate limit |
+| `SAFE_THRESHOLD` | Safe label threshold |
+| `SUSPICIOUS_THRESHOLD` | Suspicious label threshold |
+| `PHISHING_THRESHOLD` | Phishing label threshold |
 
-## Next.js migration implementation assets
-If you want to execute a spec-first migration from this Flask app to a production-grade Next.js + TypeScript stack, use:
+## Running tests and checks
 
-- `docs/nextjs-migration-playbook.md`
-- `docs/copilot-prompts-nextjs-migration.md`
+```bash
+pytest -q
+bandit -q -r app
+pip-audit -r requirements.txt
+ruff check .
+```
 
-These documents provide:
-- scope decision guidance (rewrite vs keep Flask),
-- mandatory product decisions before coding,
-- phased implementation with definition of done,
-- copy-paste Copilot prompts in strict file-batch order.
+Or run:
+
+```bash
+./scripts/security-audit.sh
+```
+
+## Model integration
+
+Point `MODEL_PATH` at a joblib-serialized classifier that exposes `predict_proba`. The app blends heuristic scoring with the model probability when available.
+
+## Migrations
+
+The app is wired with Flask-Migrate/Alembic-ready configuration. For a first migration workflow:
+
+```bash
+flask db init
+flask db migrate -m "initial schema"
+flask db upgrade
+```
+
+## Documentation
+
+- `docs/architecture.md`
+- `docs/deployment.md`
+- `docs/security.md`
+- `docs/api.md`
