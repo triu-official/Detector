@@ -1,6 +1,19 @@
 const storageKey = 'detector-recent-results';
 let deferredInstallPrompt = null;
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('\"', '&quot;')
+    .replaceAll(\"'\", '&#39;');
+}
+
+function safeLabel(value) {
+  return ['safe', 'suspicious', 'phishing'].includes(value) ? value : 'safe';
+}
+
 function getCsrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
@@ -24,13 +37,17 @@ function updateCachedCount() {
 }
 
 function renderResult(target, result) {
+  const label = safeLabel(result.label);
+  const reasons = (result.reasons || [])
+    .map((reason) => `<li>${escapeHtml(reason)}</li>`)
+    .join('');
   target.innerHTML = `
-    <div class="pill pill-${result.label}">${result.risk_score}/100 · ${result.label}</div>
-    <p><strong>${result.domain}</strong></p>
-    <p class="muted">${result.url}</p>
+    <div class="pill pill-${label}">${escapeHtml(result.risk_score)}/100 · ${escapeHtml(label)}</div>
+    <p><strong>${escapeHtml(result.domain)}</strong></p>
+    <p class="muted">${escapeHtml(result.url)}</p>
     <p>Reachability: ${result.reachability.replaceAll('_', ' ')}</p>
-    <ul class="bullet-list">${result.reasons.map((reason) => `<li>${reason}</li>`).join('')}</ul>
-    <a class="ghost-button" href="/result/${result.analysis_id}">Open details</a>
+    <ul class="bullet-list">${reasons}</ul>
+    <a class="ghost-button" href="/result/${escapeHtml(result.analysis_id)}">Open details</a>
   `;
 }
 
@@ -39,10 +56,11 @@ function prependRecentResult(result) {
   writeRecentResults(items);
   const container = document.getElementById('recent-results');
   if (!container) return;
+  const label = safeLabel(result.label);
   const link = document.createElement('a');
   link.className = 'recent-item';
   link.href = `/result/${result.analysis_id}`;
-  link.innerHTML = `<span class="pill pill-${result.label}">${result.label}</span><strong>${result.domain}</strong><small>just now</small>`;
+  link.innerHTML = `<span class="pill pill-${label}">${escapeHtml(label)}</span><strong>${escapeHtml(result.domain)}</strong><small>just now</small>`;
   container.prepend(link);
 }
 
@@ -150,7 +168,10 @@ function setupOfflineView() {
   const offlineResults = document.getElementById('offline-results');
   if (offlineResults) {
     offlineResults.innerHTML = readRecentResults()
-      .map((item) => `<a class="recent-item" href="/result/${item.analysis_id}"><span class="pill pill-${item.label}">${item.label}</span><strong>${item.domain}</strong><small>${item.url}</small></a>`)
+      .map((item) => {
+        const label = safeLabel(item.label);
+        return `<a class="recent-item" href="/result/${escapeHtml(item.analysis_id)}"><span class="pill pill-${label}">${escapeHtml(label)}</span><strong>${escapeHtml(item.domain)}</strong><small>${escapeHtml(item.url)}</small></a>`;
+      })
       .join('') || '<p class="muted">No cached results yet.</p>';
   }
   const retryButton = document.getElementById('retry-online');

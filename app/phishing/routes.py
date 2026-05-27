@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify, render_template, request, send_from_directory
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
 
 from app.extensions import limiter
 from app.forms import URLForm
@@ -20,6 +30,20 @@ def index():
         recent=recent_analyses(),
         page_title="Analyze suspicious websites",
     )
+
+
+@bp.route("/analyze", methods=["POST"])
+def analyze():
+    form = URLForm()
+    if not form.validate_on_submit():
+        flash("Please enter a valid URL or domain.", "error")
+        return redirect(url_for("phishing.index"))
+    try:
+        result = run_analysis(form.url.data, current_app.config)
+    except AnalysisInputError as exc:
+        flash(exc.message, "error")
+        return redirect(url_for("phishing.index"))
+    return redirect(url_for("phishing.result_detail", analysis_id=result.analysis_id))
 
 
 @bp.route("/result/<int:analysis_id>")

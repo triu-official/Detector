@@ -54,6 +54,8 @@ Change these before production use, or set `ADMIN_PASSWORD_HASH` instead.
 | `YOUNG_DOMAIN_DAYS` | Day threshold for a recently registered domain |
 | `NEW_DOMAIN_PENALTY` | Score penalty for very new domains |
 | `YOUNG_DOMAIN_PENALTY` | Score penalty for recently registered domains |
+| `HEURISTIC_BLEND_WEIGHT` | Weight applied to rule-based scoring when ML is enabled |
+| `ML_BLEND_WEIGHT` | Weight applied to model scoring when ML is enabled |
 
 ## Running tests and checks
 

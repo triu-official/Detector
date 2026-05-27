@@ -19,7 +19,7 @@
 <section class="grid two-up">
   <article class="card">
     <h2>Analyze a website</h2>
-    <form id="analyze-form" method="post" action="{{ url_for('phishing.api_analyze') }}">
+    <form id="analyze-form" method="post" action="{{ url_for('phishing.analyze') }}">
       {{ form.csrf_token }}
       <label for="url">URL or domain</label>
       {{ form.url(class_='input', placeholder='https://example.com or example.com') }}

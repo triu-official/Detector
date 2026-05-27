@@ -137,10 +137,8 @@ def _sync_admin_user(app: Flask) -> None:
 
 
 def _validate_runtime_config(app: Flask) -> None:
-    if app.config["FLASK_ENV"] == "production" and not (
-        app.config["ADMIN_PASSWORD_HASH"] or app.config["ADMIN_PASSWORD"]
-    ):
-        raise RuntimeError("ADMIN_PASSWORD_HASH or ADMIN_PASSWORD must be set in production.")
+    if not (app.config["ADMIN_PASSWORD_HASH"] or app.config["ADMIN_PASSWORD"]):
+        raise RuntimeError("ADMIN_PASSWORD_HASH or ADMIN_PASSWORD must be set.")
 
 
 def gather_health_snapshot() -> dict:

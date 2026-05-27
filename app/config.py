@@ -38,6 +38,8 @@ class BaseConfig:
     YOUNG_DOMAIN_DAYS = int(os.getenv("YOUNG_DOMAIN_DAYS", "30"))
     NEW_DOMAIN_PENALTY = int(os.getenv("NEW_DOMAIN_PENALTY", "20"))
     YOUNG_DOMAIN_PENALTY = int(os.getenv("YOUNG_DOMAIN_PENALTY", "10"))
+    HEURISTIC_BLEND_WEIGHT = float(os.getenv("HEURISTIC_BLEND_WEIGHT", "0.6"))
+    ML_BLEND_WEIGHT = float(os.getenv("ML_BLEND_WEIGHT", "0.4"))
     MODEL_PATH = os.getenv("MODEL_PATH", "")
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")

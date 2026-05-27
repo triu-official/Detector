@@ -283,7 +283,10 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     base_score, label = score_analysis(features, reasons, config)
     ml_score, ml_reason = predict(features, config["MODEL_PATH"])
     if ml_score is not None:
-        base_score = int((base_score * 0.6) + (ml_score * 0.4))
+        base_score = int(
+            (base_score * config["HEURISTIC_BLEND_WEIGHT"])
+            + (ml_score * config["ML_BLEND_WEIGHT"])
+        )
         if ml_reason:
             reasons.append(ml_reason)
         if base_score >= config["PHISHING_THRESHOLD"]:
