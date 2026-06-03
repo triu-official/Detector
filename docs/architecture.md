@@ -5,10 +5,11 @@ Detector uses a Flask application factory, SQLAlchemy models, Redis-backed cachi
 ## Flow
 
 1. The browser submits a URL from the PWA shell.
-2. `/api/analyze` validates and normalizes the input.
-3. Heuristics, page fetch analysis, WHOIS enrichment, blacklist checks, and optional ML inference produce a score and label.
+2. `/api/analyze/async` validates input and enqueues a Celery analysis job.
+3. Job workers run heuristics, page fetch analysis, WHOIS enrichment, blacklist checks, and optional ML inference.
 4. Results are cached in Redis and persisted in PostgreSQL/SQLite.
-5. Admin pages surface metrics, blacklist controls, exports, and batch analysis.
+5. `/api/jobs/<job_id>` exposes job status and completed serialized analysis output.
+6. Admin pages surface metrics, blacklist controls, exports, and batch analysis.
 
 ## Components
 

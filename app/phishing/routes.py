@@ -16,8 +16,8 @@ from app.extensions import limiter
 from app.forms import URLForm
 from app.models import Analysis, Feedback, db
 
-from .heuristics import AnalysisInputError
-from .services import filtered_reports, recent_analyses, run_analysis, serialize_analysis
+from .heuristics import AnalysisInputError, validate_url
+from .services import _build_explanations, filtered_reports, recent_analyses, run_analysis, serialize_analysis
 
 bp = Blueprint("phishing", __name__)
 
@@ -87,6 +87,101 @@ def api_analyze():
         return jsonify({"error": {"type": exc.error_type, "message": exc.message}}), 400
     analysis = db.session.get(Analysis, result.analysis_id)
     return jsonify(serialize_analysis(analysis))
+
+
+@bp.route("/api/analyze/async", methods=["POST"])
+@limiter.limit(lambda: current_app.config["ANALYZE_RATE_LIMIT"])
+def api_analyze_async():
+    from app.celery_app import analyze_url_task
+
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": {"type": "invalid_url", "message": "URL is required"}}), 400
+    ok, message = validate_url(url)
+    if not ok:
+        return jsonify({"error": {"type": "invalid_url", "message": message}}), 400
+    try:
+        task_result = analyze_url_task.delay(url)
+    except AnalysisInputError as exc:
+        return jsonify({"error": {"type": exc.error_type, "message": exc.message}}), 400
+    return (
+        jsonify(
+            {
+                "job_id": task_result.id,
+                "status": "queued",
+                "status_url": url_for("phishing.api_job_status", job_id=task_result.id),
+            }
+        ),
+        202,
+    )
+
+
+@bp.route("/api/jobs/<string:job_id>")
+@limiter.limit(lambda: current_app.config["ANALYZE_RATE_LIMIT"])
+def api_job_status(job_id: str):
+    from app.celery_app import get_job_state
+
+    task = get_job_state(job_id)
+    state = (task.state or "PENDING").upper()
+    if state in {"PENDING", "RETRY"}:
+        return jsonify({"job_id": job_id, "status": "queued"})
+    if state == "STARTED":
+        return jsonify({"job_id": job_id, "status": "running"})
+    if state == "FAILURE":
+        exc = task.result
+        if isinstance(exc, AnalysisInputError):
+            return (
+                jsonify(
+                    {
+                        "job_id": job_id,
+                        "status": "failed",
+                        "error": {"type": exc.error_type, "message": exc.message},
+                    }
+                ),
+                400,
+            )
+        message = "Analysis job failed unexpectedly"
+        current_app.logger.error("analysis_job_failed", extra={"job_id": job_id})
+        return (
+            jsonify(
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error": {"type": "analysis_failed", "message": message},
+                }
+            ),
+            500,
+        )
+    payload = task.result or {}
+    analysis_id = payload.get("analysis_id")
+    if not analysis_id:
+        return (
+            jsonify(
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error": {"type": "missing_result", "message": "Analysis result missing"},
+                }
+            ),
+            500,
+        )
+    analysis = db.session.get(Analysis, analysis_id)
+    if analysis is None:
+        return (
+            jsonify(
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error": {"type": "missing_result", "message": "Analysis record missing"},
+                }
+            ),
+            500,
+        )
+    result = serialize_analysis(analysis)
+    if not result.get("explanations"):
+        result["explanations"] = _build_explanations(result.get("reasons", []))
+    return jsonify({"job_id": job_id, "status": "completed", "result": result})
 
 
 @bp.route("/api/reports")

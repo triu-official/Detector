@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import re
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -9,6 +11,7 @@ from io import StringIO
 from typing import Any
 
 import requests
+from flask import current_app
 from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout, RequestException, SSLError
@@ -26,6 +29,7 @@ from .heuristics import (
     normalize_url,
     sanitized_domain,
     url_hash,
+    validate_redirect_target,
     validate_url,
 )
 from .ml_model import load_model, predict
@@ -44,6 +48,9 @@ class AnalysisResult:
     redirect_chain: list[str]
     status_code: int | None
     features_summary: dict[str, Any]
+    explanations: list[dict[str, str]]
+    confidence: float
+    model_metadata: dict[str, Any]
     error_type: str | None = None
     error_message: str | None = None
     cache_hit: bool = False
@@ -76,12 +83,32 @@ def _cache_set(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
     redis_client.setex(key, ttl_seconds, json.dumps(payload))
 
 
-def is_blacklisted(url_or_domain: str) -> bool:
+def blacklist_lookup(url_or_domain: str) -> tuple[bool, str | None]:
     try:
         domain = sanitized_domain(url_or_domain)
     except AnalysisInputError:
         domain = url_or_domain.strip().lower()
-    return Blacklist.query.filter_by(domain=domain).first() is not None
+    entry = Blacklist.query.filter_by(domain=domain).first()
+    if not entry:
+        return False, None
+    source = entry.source.strip().lower() if entry.source else "manual"
+    return True, f"local:{source}"
+
+
+def _threat_intel_hit(domain: str, config: dict[str, Any]) -> str | None:
+    raw = (config.get("THREAT_INTEL_STATIC_DOMAINS") or "").strip()
+    if not raw:
+        return None
+    for item in raw.split(","):
+        payload = item.strip()
+        if not payload:
+            continue
+        item_domain, _, item_source = payload.partition(":")
+        normalized = item_domain.strip().lower()
+        if normalized and normalized == domain.lower():
+            source = item_source.strip() or "static-feed"
+            return f"intel:{source}"
+    return None
 
 
 def _build_session() -> requests.Session:
@@ -100,20 +127,46 @@ def _build_session() -> requests.Session:
 
 def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int) -> PageFetchResult:
     session = _build_session()
-    session.max_redirects = max_redirect_depth
     last_exception: Exception | None = None
     for _attempt in range(retry_count + 1):
+        current_url = url
+        redirect_chain = [url]
         try:
-            response = session.get(
-                url,
-                timeout=timeout,
-                allow_redirects=True,
-                headers={"User-Agent": "Detector/1.0"},
-            )
-            redirect_chain = [url, *[item.url for item in response.history]]
-            if response.url not in redirect_chain:
-                redirect_chain.append(response.url)
-            redirect_chain = redirect_chain[: max_redirect_depth + 1]
+            response = None
+            for _hop in range(max_redirect_depth + 1):
+                response = session.get(
+                    current_url,
+                    timeout=timeout,
+                    allow_redirects=False,
+                    headers={"User-Agent": "Detector/1.0"},
+                )
+                if response.is_redirect or response.is_permanent_redirect:
+                    location = response.headers.get("Location")
+                    if not location:
+                        raise ReachabilityError(
+                            message="Redirect response did not include a location header",
+                            error_type="invalid_redirect",
+                        )
+                    ok, message, next_url = validate_redirect_target(current_url, location)
+                    if not ok:
+                        raise ReachabilityError(
+                            message=message or "Redirect target was blocked by network policy",
+                            error_type="blocked_redirect",
+                        )
+                    current_url = next_url
+                    redirect_chain.append(current_url)
+                    continue
+                break
+            if response is None:
+                raise ReachabilityError(
+                    message="The target website could not be fetched",
+                    error_type="unreachable",
+                )
+            if response.is_redirect or response.is_permanent_redirect:
+                raise ReachabilityError(
+                    message="The target website redirected too many times",
+                    error_type="too_many_redirects",
+                )
             reasons: list[str] = []
             reachability = "reachable"
             if len(redirect_chain) > 1:
@@ -123,6 +176,8 @@ def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int
                 reachability = "partially_reachable"
                 reasons.append(f"Page returned HTTP {response.status_code}")
             return PageFetchResult(response, response.url, redirect_chain, reasons, reachability)
+        except ReachabilityError:
+            raise
         except (RequestsTimeout, ReadTimeout) as exc:
             last_exception = exc
             error_type = "timeout"
@@ -144,6 +199,29 @@ def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int
             error_type = "unreachable"
             message = "The target website could not be fetched"
     raise ReachabilityError(message=message, error_type=error_type) from last_exception
+
+
+def _reason_code(message: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", message.lower()).strip("_")
+    return normalized[:64] or "unspecified_signal"
+
+
+def _build_explanations(reasons: list[str]) -> list[dict[str, str]]:
+    return [{"code": _reason_code(reason), "message": reason} for reason in reasons]
+
+
+def _compute_confidence(score: int, label: str, config: dict[str, Any], *, ml_used: bool) -> float:
+    if label == "phishing":
+        boundary = config["PHISHING_THRESHOLD"]
+    elif label == "suspicious":
+        boundary = config["SUSPICIOUS_THRESHOLD"]
+    else:
+        boundary = config["SAFE_THRESHOLD"]
+    distance = abs(score - boundary)
+    base = min(0.45 + (distance / 100), 0.95)
+    if ml_used:
+        base = min(base + 0.03, 0.98)
+    return round(max(base, 0.35), 2)
 
 
 def analyze_page(
@@ -217,7 +295,19 @@ def score_analysis(features: dict[str, float], reasons: list[str], config: dict[
 
 def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) -> AnalysisResult:
     started_at = time.perf_counter()
+    timeout = min(
+        max(int(config["REQUEST_TIMEOUT_SECONDS"]), 1),
+        max(int(config.get("MAX_REQUEST_TIMEOUT_SECONDS", 30)), 1),
+    )
+    retry_count = min(
+        max(int(config["REQUEST_RETRY_COUNT"]), 0),
+        max(int(config.get("MAX_REQUEST_RETRY_COUNT", 3)), 0),
+    )
     normalized = normalize_url(raw_url)
+    try:
+        current_app.logger.info("analysis_started", extra={"raw_url": raw_url})
+    except RuntimeError:
+        pass
     ok, message = validate_url(normalized)
     if not ok:
         raise AnalysisInputError(message)
@@ -226,6 +316,12 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     cache_key = f"analysis:{hashed}"
     cached = _cache_get(cache_key)
     if cached:
+        cached.setdefault("explanations", _build_explanations(cached.get("reasons", [])))
+        cached.setdefault("confidence", 0.5)
+        cached.setdefault(
+            "model_metadata",
+            {"enabled": False, "used": False, "source": "heuristic", "model_name": ""},
+        )
         cached_result = AnalysisResult(**cached)
         cached_result.cache_hit = True
         if persist:
@@ -234,12 +330,13 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         return cached_result
 
     features, reasons = extract_url_features(normalized)
+    ml_used = False
     try:
         page_features, page_result = analyze_page(
             normalized,
-            timeout=config["REQUEST_TIMEOUT_SECONDS"],
+            timeout=timeout,
             max_redirect_depth=config["MAX_REDIRECT_DEPTH"],
-            retry_count=config["REQUEST_RETRY_COUNT"],
+            retry_count=retry_count,
         )
         features.update(page_features)
         reasons.extend(page_result.reasons)
@@ -276,13 +373,21 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     )
     features["domain_age_days"] = float(domain_info.get("domain_age_days", 0))
     reasons.extend(domain_reasons)
-    features["blacklisted"] = 1.0 if is_blacklisted(domain) else 0.0
+    blacklisted, blacklist_source = blacklist_lookup(domain)
+    intel_source = _threat_intel_hit(domain, config)
+    if intel_source:
+        blacklisted = True
+        blacklist_source = intel_source
+    features["blacklisted"] = 1.0 if blacklisted else 0.0
     if features["blacklisted"]:
         reasons.append("Domain appears on the local blacklist")
+        if blacklist_source:
+            reasons.append(f"Blacklist source: {blacklist_source}")
 
     base_score, label = score_analysis(features, reasons, config)
     ml_score, ml_reason = predict(features, config["MODEL_PATH"])
     if ml_score is not None:
+        ml_used = True
         base_score = int(
             (base_score * config["HEURISTIC_BLEND_WEIGHT"])
             + (ml_score * config["ML_BLEND_WEIGHT"])
@@ -302,7 +407,22 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         "reachability": reachability,
         "status_code": status_code,
         "domain_age_days": features.get("domain_age_days", 0),
+        "blacklist_source": blacklist_source,
+        "explanations": [],
+        "confidence": None,
+        "model": {},
     }
+    explanations = _build_explanations(list(dict.fromkeys(reasons)))
+    confidence = _compute_confidence(base_score, label, config, ml_used=ml_used)
+    model_metadata = {
+        "enabled": bool(config["MODEL_PATH"]),
+        "used": ml_used,
+        "source": "hybrid" if ml_used else "heuristic",
+        "model_name": os.path.basename(config["MODEL_PATH"]) if config["MODEL_PATH"] else "",
+    }
+    summary["explanations"] = explanations
+    summary["confidence"] = confidence
+    summary["model"] = model_metadata
     result = AnalysisResult(
         raw_url=raw_url,
         normalized_url=normalized,
@@ -315,6 +435,9 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         redirect_chain=redirect_chain,
         status_code=status_code,
         features_summary=summary,
+        explanations=explanations,
+        confidence=confidence,
+        model_metadata=model_metadata,
         error_type=error_type,
         error_message=error_message,
         cache_hit=False,
@@ -325,6 +448,18 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     if persist:
         analysis = save_analysis(result)
         result.analysis_id = analysis.id
+    try:
+        current_app.logger.info(
+            "analysis_completed",
+            extra={
+                "domain": result.domain,
+                "label": result.label,
+                "risk_score": result.risk_score,
+                "latency_ms": result.latency_ms,
+            },
+        )
+    except RuntimeError:
+        pass
     return result
 
 
@@ -352,6 +487,7 @@ def save_analysis(result: AnalysisResult) -> Analysis:
 
 
 def serialize_analysis(analysis: Analysis) -> dict[str, Any]:
+    features_summary = analysis.features_summary or {}
     return {
         "analysis_id": analysis.id,
         "url": analysis.normalized_url,
@@ -361,7 +497,11 @@ def serialize_analysis(analysis: Analysis) -> dict[str, Any]:
         "reasons": analysis.reasons,
         "reachability": analysis.reachability,
         "redirect_chain": analysis.redirect_chain,
-        "features_summary": analysis.features_summary,
+        "features_summary": features_summary,
+        "explanations": features_summary.get("explanations", []),
+        "confidence": features_summary.get("confidence"),
+        "model": features_summary.get("model", {}),
+        "blacklist_source": features_summary.get("blacklist_source"),
         "status_code": analysis.status_code,
         "error": (
             {"type": analysis.error_type, "message": analysis.error_message}

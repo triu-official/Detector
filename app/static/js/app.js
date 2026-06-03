@@ -123,7 +123,8 @@ function setupAnalyzeForm() {
     const formData = new FormData(form);
     const url = String(formData.get('url') || '').trim();
     try {
-      const response = await fetch('/api/analyze', {
+      resultContent.innerHTML = '<p class="muted">Analysis queued. Waiting for worker result…</p>';
+      const response = await fetch('/api/analyze/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
         body: JSON.stringify({ url }),
@@ -134,15 +135,33 @@ function setupAnalyzeForm() {
           payload.error?.message || 'Unable to analyze URL. Check the address and try again.',
         );
       }
-      renderResult(resultContent, payload);
-      prependRecentResult(payload);
+      let result = null;
+      for (let attempt = 0; attempt < 25; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const statusResponse = await fetch(payload.status_url, {
+          headers: { 'X-CSRFToken': getCsrfToken() },
+        });
+        const statusPayload = await statusResponse.json();
+        if (statusPayload.status === 'completed') {
+          result = statusPayload.result;
+          break;
+        }
+        if (statusPayload.status === 'failed') {
+          throw new Error(statusPayload.error?.message || 'Analysis failed');
+        }
+      }
+      if (!result) {
+        throw new Error('Analysis is still running. Please try again in a moment.');
+      }
+      renderResult(resultContent, result);
+      prependRecentResult(result);
       if (
         'serviceWorker' in navigator &&
         Notification.permission === 'granted' &&
-        ['suspicious', 'phishing'].includes(payload.label)
+        ['suspicious', 'phishing'].includes(result.label)
       ) {
         const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification('Detector found a risky URL', { body: `${payload.domain} scored ${payload.risk_score}/100 (${payload.label})` });
+        await registration.showNotification('Detector found a risky URL', { body: `${result.domain} scored ${result.risk_score}/100 (${result.label})` });
       }
     } catch (error) {
       errorBox.textContent = error.message;

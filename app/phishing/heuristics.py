@@ -6,7 +6,7 @@ import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import whois
 
@@ -83,6 +83,12 @@ def validate_url(raw_url: str) -> tuple[bool, str]:
     if not _is_public_host(urlparse(normalized).hostname):
         return False, "URL points to a private or local network address"
     return True, ""
+
+
+def validate_redirect_target(current_url: str, location: str) -> tuple[bool, str, str]:
+    next_url = urljoin(current_url, location)
+    ok, message = validate_url(next_url)
+    return ok, message, next_url
 
 
 def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:

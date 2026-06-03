@@ -25,6 +25,8 @@ class BaseConfig:
     WTF_CSRF_TIME_LIMIT = None
     REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "10"))
     REQUEST_RETRY_COUNT = int(os.getenv("REQUEST_RETRY_COUNT", "1"))
+    MAX_REQUEST_TIMEOUT_SECONDS = int(os.getenv("MAX_REQUEST_TIMEOUT_SECONDS", "30"))
+    MAX_REQUEST_RETRY_COUNT = int(os.getenv("MAX_REQUEST_RETRY_COUNT", "3"))
     MAX_REDIRECT_DEPTH = int(os.getenv("MAX_REDIRECT_DEPTH", "5"))
     ANALYZE_RATE_LIMIT = os.getenv("ANALYZE_RATE_LIMIT", "30/hour")
     ADMIN_RATE_LIMIT = os.getenv("ADMIN_RATE_LIMIT", "10/minute")
@@ -47,6 +49,17 @@ class BaseConfig:
     CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
     SENTRY_DSN = os.getenv("SENTRY_DSN", "")
     BATCH_ANALYSIS_LIMIT = int(os.getenv("BATCH_ANALYSIS_LIMIT", "50"))
+    MAX_BATCH_ANALYSIS_LIMIT = int(os.getenv("MAX_BATCH_ANALYSIS_LIMIT", "500"))
+    REQUEST_LOG_RETENTION_DAYS = int(os.getenv("REQUEST_LOG_RETENTION_DAYS", "30"))
+    REPORT_RETENTION_DAYS = int(os.getenv("REPORT_RETENTION_DAYS", "90"))
+    CLEANUP_INTERVAL_SECONDS = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "3600"))
+    THREAT_INTEL_STATIC_DOMAINS = os.getenv("THREAT_INTEL_STATIC_DOMAINS", "")
+    CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL or "memory://")
+    CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL or "cache+memory://")
+    CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
+    CELERY_TASK_EAGER_PROPAGATES = (
+        os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
+    )
     CSP = {
         "default-src": "'self'",
         "script-src": "'self'",
@@ -80,6 +93,9 @@ class TestingConfig(BaseConfig):
     REPORTS_RATE_LIMIT = "1000/hour"
     REQUEST_TIMEOUT_SECONDS = 1
     REQUEST_RETRY_COUNT = 0
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_BROKER_URL = "memory://"
+    CELERY_RESULT_BACKEND = "cache+memory://"
 
 
 CONFIG_MAP = {

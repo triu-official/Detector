@@ -13,6 +13,7 @@
     <section>
       <h2>Reachability</h2>
       <p>{{ serialized.reachability.replace('_', ' ') }}</p>
+      {% if serialized.confidence is not none %}<p>Confidence: {{ serialized.confidence }}</p>{% endif %}
       {% if serialized.status_code %}<p>Status code: {{ serialized.status_code }}</p>{% endif %}
       {% if serialized.error %}<p>{{ serialized.error.message }}</p>{% endif %}
       <h3>Reasons</h3>
@@ -35,6 +36,10 @@
           <li>{{ item }}</li>
         {% endfor %}
       </ol>
+      {% if serialized.model %}
+        <h3>Model metadata</h3>
+        <p>Mode: {{ serialized.model.source }}{% if serialized.model.model_name %} · {{ serialized.model.model_name }}{% endif %}</p>
+      {% endif %}
     </section>
   </div>
   <form id="feedback-form" class="inline-form" method="post" action="{{ url_for('phishing.feedback', analysis_id=analysis.id) }}">

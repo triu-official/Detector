@@ -94,6 +94,7 @@ def add_blacklist_entry():
         if entry is None:
             db.session.add(Blacklist(domain=domain, reason=(form.reason.data or "").strip()))
             db.session.commit()
+            current_app.logger.info("blacklist_added", extra={"domain": domain, "actor": current_user.username})
             flash("Domain added to blacklist", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -103,8 +104,10 @@ def add_blacklist_entry():
 @limiter.limit(lambda: current_app.config["ADMIN_RATE_LIMIT"])
 def delete_blacklist_entry(entry_id: int):
     entry = Blacklist.query.get_or_404(entry_id)
+    domain = entry.domain
     db.session.delete(entry)
     db.session.commit()
+    current_app.logger.info("blacklist_removed", extra={"domain": domain, "actor": current_user.username})
     flash("Blacklist entry removed", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -121,8 +124,9 @@ def batch_analyze():
     data = io.StringIO(form.file.data.stream.read().decode("utf-8"))
     reader = csv.DictReader(data)
     rows = []
+    max_allowed = min(current_app.config["BATCH_ANALYSIS_LIMIT"], current_app.config["MAX_BATCH_ANALYSIS_LIMIT"])
     for idx, row in enumerate(reader, start=1):
-        if idx > current_app.config["BATCH_ANALYSIS_LIMIT"]:
+        if idx > max_allowed:
             break
         url = (row.get("url") or "").strip()
         if not url:
@@ -150,6 +154,7 @@ def batch_analyze():
         )
     db.session.add(Report(title="Batch CSV analysis", content=f"Processed {len(rows)} URLs"))
     db.session.commit()
+    current_app.logger.info("batch_analysis_completed", extra={"count": len(rows), "actor": current_user.username})
     return Response(
         output.getvalue(),
         mimetype="text/csv",
@@ -164,6 +169,7 @@ def export_csv():
     rows = Analysis.query.order_by(Analysis.created_at.desc()).limit(500).all()
     db.session.add(Report(title="CSV export", content=f"Exported {len(rows)} rows"))
     db.session.commit()
+    current_app.logger.info("csv_exported", extra={"count": len(rows), "actor": current_user.username})
     return Response(
         analyses_to_csv(rows),
         mimetype="text/csv",
@@ -196,6 +202,7 @@ def export_pdf():
     buffer.seek(0)
     db.session.add(Report(title="PDF export", content=f"Exported {len(rows)} rows"))
     db.session.commit()
+    current_app.logger.info("pdf_exported", extra={"count": len(rows), "actor": current_user.username})
     return send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name="detector-report.pdf")
 
 

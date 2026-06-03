@@ -24,7 +24,7 @@
       <label for="url">URL or domain</label>
       {{ form.url(class_='input', placeholder='https://example.com or example.com') }}
       <button class="primary-button" type="submit">Analyze now</button>
-      <p class="helper">Results are cached for repeated lookups and rendered without reloading the page.</p>
+      <p class="helper">Scans run asynchronously via worker jobs, then the page auto-updates when the result is ready.</p>
     </form>
     <div id="analysis-error" class="flash flash-error hidden"></div>
   </article>

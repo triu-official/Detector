@@ -8,6 +8,8 @@
 - Redis-backed rate limiting for public and admin routes
 - Structured request logging plus recent error summaries
 - Input normalization and validation before network fetches or blacklist comparisons
+- Redirect target validation to block private/local-network pivots during outbound fetches
+- Operational caps for timeout/retry/batch sizes and periodic retention cleanup for request logs/reports
 - No secrets committed to the repository; use env vars or local `.env`
 
 ## Audit workflow
