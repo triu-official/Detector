@@ -90,6 +90,14 @@ flask db migrate -m "initial schema"
 flask db upgrade
 ```
 
+Do not rely on runtime `db.create_all()` in production; run `flask db upgrade` during deploy/startup.
+
+## Async scan workflow
+
+- `POST /api/analyze/async` enqueues a Celery job and returns `job_id`.
+- `GET /api/jobs/<job_id>` returns queued/running/completed/failed status.
+- Frontend polling now uses the async API by default.
+
 ## Documentation
 
 - `docs/architecture.md`

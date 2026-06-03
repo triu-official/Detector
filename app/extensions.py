@@ -71,6 +71,7 @@ _error_lock = Lock()
 class RuntimeState:
     last_error: dict[str, str] | None = None
     model_loaded: bool = False
+    last_cleanup_at: float = 0.0
 
 
 runtime_state = RuntimeState()

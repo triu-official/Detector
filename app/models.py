@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask_login import UserMixin
 from sqlalchemy import func
@@ -36,6 +36,11 @@ class User(UserMixin, db.Model):
 
 class Analysis(db.Model):
     __tablename__ = "analyses"
+    __table_args__ = (
+        db.Index("ix_analyses_created_at", "created_at"),
+        db.Index("ix_analyses_label_created_at", "label", "created_at"),
+        db.Index("ix_analyses_domain_created_at", "domain", "created_at"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     url_hash = db.Column(db.String(64), index=True, nullable=False)
@@ -68,6 +73,7 @@ class Blacklist(db.Model):
 
 class Report(db.Model):
     __tablename__ = "reports"
+    __table_args__ = (db.Index("ix_reports_created_at", "created_at"),)
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
@@ -86,6 +92,7 @@ class Feedback(db.Model):
 
 class RequestLog(db.Model):
     __tablename__ = "request_logs"
+    __table_args__ = (db.Index("ix_request_logs_created_at", "created_at"),)
 
     id = db.Column(db.Integer, primary_key=True)
     method = db.Column(db.String(10), nullable=False)
@@ -100,3 +107,14 @@ def summary_counts() -> dict[str, int]:
         row[0]: row[1]
         for row in db.session.query(Analysis.label, func.count(Analysis.id)).group_by(Analysis.label).all()
     }
+
+
+def prune_old_data(*, request_log_retention_days: int, report_retention_days: int) -> dict[str, int]:
+    now = datetime.utcnow()
+    request_log_cutoff = now - timedelta(days=max(request_log_retention_days, 1))
+    report_cutoff = now - timedelta(days=max(report_retention_days, 1))
+    deleted_request_logs = (
+        RequestLog.query.filter(RequestLog.created_at < request_log_cutoff).delete(synchronize_session=False)
+    )
+    deleted_reports = Report.query.filter(Report.created_at < report_cutoff).delete(synchronize_session=False)
+    return {"request_logs": int(deleted_request_logs or 0), "reports": int(deleted_reports or 0)}

@@ -36,10 +36,33 @@ Supports `page`, `per_page`, `label`, `domain`, `date_from`, `date_to`.
 
 Returns filtered analyses in a JSON envelope.
 
+## `POST /api/analyze/async`
+
+Request:
+
+```json
+{"url": "https://example.com"}
+```
+
+Response (`202`):
+
+```json
+{"job_id": "abc123", "status": "queued", "status_url": "/api/jobs/abc123"}
+```
+
+## `GET /api/jobs/<job_id>`
+
+Returns:
+
+- `queued`
+- `running`
+- `completed` with `result`
+- `failed` with sanitized `error`
+
 ## `GET /health`
 
 Returns database, Redis, and model health details.
 
 ## `GET /metrics`
 
-Prometheus-style counters for total analyses, label counts, and average latency.
+Prometheus-style counters for total analyses, label counts, cache hits, unreachable analyses, recent error count, and average latency.

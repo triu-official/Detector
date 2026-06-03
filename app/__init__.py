@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 
 from flask import Flask, g, jsonify, render_template, request
+from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import generate_password_hash
 
 from .admin import bp as admin_bp
@@ -21,7 +23,7 @@ from .extensions import (
     redis_client,
     runtime_state,
 )
-from .models import RequestLog, User
+from .models import RequestLog, User, prune_old_data
 from .phishing import bp as phishing_bp
 from .security import configure_logging, configure_security
 
@@ -56,8 +58,11 @@ def create_app(config_class: type[BaseConfig] | None = None):
 
     with app.app_context():
         _validate_runtime_config(app)
-        db.create_all()
-        _sync_admin_user(app)
+        try:
+            if inspect(db.engine).has_table("users"):
+                _sync_admin_user(app)
+        except SQLAlchemyError:
+            app.logger.debug("admin_user_sync_skipped", exc_info=True)
         runtime_state.model_loaded = bool(app.config["MODEL_PATH"])
 
     @app.context_processor
@@ -89,12 +94,17 @@ def create_app(config_class: type[BaseConfig] | None = None):
         safe = Analysis.query.filter_by(label="safe").count()
         suspicious = Analysis.query.filter_by(label="suspicious").count()
         phishing = Analysis.query.filter_by(label="phishing").count()
+        cache_hits = Analysis.query.filter_by(cache_hit=True).count()
+        unreachable = Analysis.query.filter(Analysis.reachability == "unreachable").count()
         avg_latency = db.session.query(db.func.avg(Analysis.latency_ms)).scalar() or 0
         body = [
             f"detector_total_analyses {total}",
             f"detector_safe_analyses {safe}",
             f"detector_suspicious_analyses {suspicious}",
             f"detector_phishing_analyses {phishing}",
+            f"detector_cache_hits {cache_hits}",
+            f"detector_unreachable_analyses {unreachable}",
+            f"detector_recent_error_count {len(error_buffer)}",
             f"detector_avg_latency_ms {avg_latency:.2f}",
         ]
         return "\n".join(body) + "\n", 200, {"Content-Type": "text/plain; version=0.0.4"}
@@ -115,6 +125,15 @@ def create_app(config_class: type[BaseConfig] | None = None):
                 )
             )
             db.session.commit()
+            if time.time() - runtime_state.last_cleanup_at >= app.config["CLEANUP_INTERVAL_SECONDS"]:
+                deleted = prune_old_data(
+                    request_log_retention_days=app.config["REQUEST_LOG_RETENTION_DAYS"],
+                    report_retention_days=app.config["REPORT_RETENTION_DAYS"],
+                )
+                if deleted["request_logs"] or deleted["reports"]:
+                    app.logger.info("retention_cleanup", extra={"deleted": deleted})
+                db.session.commit()
+                runtime_state.last_cleanup_at = time.time()
         except Exception as exc:
             app.logger.warning(
                 "request_log_failed",
