@@ -10,6 +10,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def _celery_default(key: str, redis_url: str, fallback: str) -> str:
+    """Return env var, or redis_url if set, else the in-process fallback."""
+    val = os.getenv(key, "")
+    if val:
+        return val
+    if redis_url:
+        return redis_url
+    return fallback
+
+
 class BaseConfig:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
     SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
@@ -17,8 +27,9 @@ class BaseConfig:
         "postgres://", "postgresql://", 1
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    RATELIMIT_STORAGE_URI = os.getenv("REDIS_URL", "memory://")
+    # Redis is optional — falls back to in-memory when REDIS_URL is empty
     REDIS_URL = os.getenv("REDIS_URL", "")
+    RATELIMIT_STORAGE_URI = REDIS_URL if REDIS_URL else "memory://"
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
     SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
@@ -46,7 +57,7 @@ class BaseConfig:
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
     ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
-    CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
+    CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
     SENTRY_DSN = os.getenv("SENTRY_DSN", "")
     BATCH_ANALYSIS_LIMIT = int(os.getenv("BATCH_ANALYSIS_LIMIT", "50"))
     MAX_BATCH_ANALYSIS_LIMIT = int(os.getenv("MAX_BATCH_ANALYSIS_LIMIT", "500"))
@@ -54,12 +65,13 @@ class BaseConfig:
     REPORT_RETENTION_DAYS = int(os.getenv("REPORT_RETENTION_DAYS", "90"))
     CLEANUP_INTERVAL_SECONDS = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "3600"))
     THREAT_INTEL_STATIC_DOMAINS = os.getenv("THREAT_INTEL_STATIC_DOMAINS", "")
-    CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL or "memory://")
-    CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL or "cache+memory://")
-    CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
-    CELERY_TASK_EAGER_PROPAGATES = (
-        os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
-    )
+    # Celery: default to in-process eager execution when no Redis is configured
+    _redis_url = REDIS_URL  # evaluated at class body time
+    CELERY_BROKER_URL = _celery_default("CELERY_BROKER_URL", _redis_url, "memory://")
+    CELERY_RESULT_BACKEND = _celery_default("CELERY_RESULT_BACKEND", _redis_url, "cache+memory://")
+    # When no Redis, run tasks eagerly in the same process
+    CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "true" if not REDIS_URL else "false").lower() == "true"
+    CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
     CSP = {
         "default-src": "'self'",
         "script-src": "'self'",

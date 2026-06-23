@@ -92,8 +92,6 @@ def api_analyze():
 @bp.route("/api/analyze/async", methods=["POST"])
 @limiter.limit(lambda: current_app.config["ANALYZE_RATE_LIMIT"])
 def api_analyze_async():
-    from app.celery_app import analyze_url_task
-
     payload = request.get_json(silent=True) or {}
     url = (payload.get("url") or "").strip()
     if not url:
@@ -101,20 +99,41 @@ def api_analyze_async():
     ok, message = validate_url(url)
     if not ok:
         return jsonify({"error": {"type": "invalid_url", "message": message}}), 400
+
+    # Try to dispatch via Celery; gracefully fall back to synchronous execution
+    # when Redis / broker is unavailable (e.g. local dev without Docker).
     try:
+        from app.celery_app import analyze_url_task
         task_result = analyze_url_task.delay(url)
-    except AnalysisInputError as exc:
-        return jsonify({"error": {"type": exc.error_type, "message": exc.message}}), 400
-    return (
-        jsonify(
-            {
+        return (
+            jsonify({
                 "job_id": task_result.id,
                 "status": "queued",
                 "status_url": url_for("phishing.api_job_status", job_id=task_result.id),
-            }
-        ),
-        202,
-    )
+                "async": True,
+            }),
+            202,
+        )
+    except Exception as broker_err:  # noqa: BLE001
+        current_app.logger.warning(
+            "celery_broker_unavailable_falling_back_to_sync",
+            extra={"error": str(broker_err)},
+        )
+
+    # Synchronous fallback — run inline and return the full result immediately
+    try:
+        result = run_analysis(url, current_app.config)
+    except AnalysisInputError as exc:
+        return jsonify({"error": {"type": exc.error_type, "message": exc.message}}), 400
+
+    analysis = db.session.get(Analysis, result.analysis_id)
+    serialized = serialize_analysis(analysis)
+    return jsonify({
+        "job_id": None,
+        "status": "completed",
+        "result": serialized,
+        "async": False,
+    }), 200
 
 
 @bp.route("/api/jobs/<string:job_id>")
@@ -132,50 +151,42 @@ def api_job_status(job_id: str):
         exc = task.result
         if isinstance(exc, AnalysisInputError):
             return (
-                jsonify(
-                    {
-                        "job_id": job_id,
-                        "status": "failed",
-                        "error": {"type": exc.error_type, "message": exc.message},
-                    }
-                ),
+                jsonify({
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error": {"type": exc.error_type, "message": exc.message},
+                }),
                 400,
             )
         message = "Analysis job failed unexpectedly"
         current_app.logger.error("analysis_job_failed", extra={"job_id": job_id})
         return (
-            jsonify(
-                {
-                    "job_id": job_id,
-                    "status": "failed",
-                    "error": {"type": "analysis_failed", "message": message},
-                }
-            ),
+            jsonify({
+                "job_id": job_id,
+                "status": "failed",
+                "error": {"type": "analysis_failed", "message": message},
+            }),
             500,
         )
     payload = task.result or {}
     analysis_id = payload.get("analysis_id")
     if not analysis_id:
         return (
-            jsonify(
-                {
-                    "job_id": job_id,
-                    "status": "failed",
-                    "error": {"type": "missing_result", "message": "Analysis result missing"},
-                }
-            ),
+            jsonify({
+                "job_id": job_id,
+                "status": "failed",
+                "error": {"type": "missing_result", "message": "Analysis result missing"},
+            }),
             500,
         )
     analysis = db.session.get(Analysis, analysis_id)
     if analysis is None:
         return (
-            jsonify(
-                {
-                    "job_id": job_id,
-                    "status": "failed",
-                    "error": {"type": "missing_result", "message": "Analysis record missing"},
-                }
-            ),
+            jsonify({
+                "job_id": job_id,
+                "status": "failed",
+                "error": {"type": "missing_result", "message": "Analysis record missing"},
+            }),
             500,
         )
     result = serialize_analysis(analysis)
@@ -195,17 +206,15 @@ def api_reports():
         date_from=request.args.get("date_from") or None,
         date_to=request.args.get("date_to") or None,
     )
-    return jsonify(
-        {
-            "items": [serialize_analysis(item) for item in pagination.items],
-            "pagination": {
-                "page": pagination.page,
-                "pages": pagination.pages,
-                "per_page": pagination.per_page,
-                "total": pagination.total,
-            },
-        }
-    )
+    return jsonify({
+        "items": [serialize_analysis(item) for item in pagination.items],
+        "pagination": {
+            "page": pagination.page,
+            "pages": pagination.pages,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+        },
+    })
 
 
 @bp.route("/api/export/json")
