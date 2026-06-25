@@ -1,2 +1,33 @@
 {% extends "base.html" %}
-{% block content %}<section class="card legal-page"><h1>Terms</h1><p>Use this service responsibly and only for domains or URLs you are authorized to inspect.</p></section>{% endblock %}
+{% block content %}
+<article class="card legal-page" style="max-width:720px;margin:0 auto">
+  <p class="eyebrow">Legal</p>
+  <h1>Terms of Use</h1>
+
+  <p>By using Detector you agree to these terms. If you do not agree, do not use the service.</p>
+
+  <h2>Permitted use</h2>
+  <ul class="bullet-list">
+    <li>You may use this service to scan URLs and domains you are <strong>authorised to inspect</strong>.</li>
+    <li>You may use the API for automated scanning in security research and operational workflows consistent with these terms.</li>
+  </ul>
+
+  <h2>Prohibited use</h2>
+  <ul class="bullet-list">
+    <li>You must not submit URLs containing credentials, tokens, or other sensitive personal data in the URL string itself.</li>
+    <li>You must not attempt to abuse, overload, or reverse-engineer the service.</li>
+    <li>You must not use results from this service to harass, defame, or falsely accuse any person or organisation.</li>
+    <li>Automated scraping of result pages beyond the intended API is prohibited.</li>
+  </ul>
+
+  <h2>Rate limits</h2>
+  <p>To ensure fair use, the analysis endpoint is rate-limited per IP address. Repeated violations may result in temporary blocking.</p>
+
+  <h2>Changes</h2>
+  <p>These terms may be updated at any time. Continued use after changes constitutes acceptance.</p>
+
+  <div style="margin-top:2rem">
+    <a class="ghost-button" href="{{ url_for('phishing.index') }}">&#8592; Back to scanner</a>
+  </div>
+</article>
+{% endblock %}

@@ -1,2 +1,34 @@
 {% extends "base.html" %}
-{% block content %}<section class="card legal-page"><h1>Privacy</h1><p>Analyses, feedback, and admin actions are stored to support reporting, auditing, and quality improvements.</p></section>{% endblock %}
+{% block content %}
+<article class="card legal-page" style="max-width:720px;margin:0 auto">
+  <p class="eyebrow">Legal</p>
+  <h1>Privacy Policy</h1>
+
+  <p>This policy explains what data Detector collects and how it is used when you scan a URL using this service.</p>
+
+  <h2>What we store</h2>
+  <ul class="bullet-list">
+    <li><strong>Submitted URLs</strong> &mdash; every URL you submit is stored in a database along with its risk score, label, and detection reasons.</li>
+    <li><strong>Request logs</strong> &mdash; HTTP method, path, status code, and response time are logged per request for operational monitoring. These are automatically deleted after 30 days.</li>
+    <li><strong>Feedback</strong> &mdash; if you flag a result as incorrect, the analysis ID and timestamp are stored.</li>
+    <li><strong>Admin actions</strong> &mdash; blacklist additions, exports, and batch scans are logged for audit purposes.</li>
+  </ul>
+
+  <h2>What we do not store</h2>
+  <ul class="bullet-list">
+    <li>We do not store cookies beyond the session cookie required for the admin panel.</li>
+    <li>We do not store your IP address in the analysis records.</li>
+    <li>We do not sell or share any data with third parties.</li>
+  </ul>
+
+  <h2>Caching</h2>
+  <p>Analysis results may be cached in Redis for up to 30 minutes to avoid re-scanning identical URLs. Cached data is not shared between users.</p>
+
+  <h2>Your rights</h2>
+  <p>If you wish to request deletion of data associated with a URL you submitted, please contact the administrator of this deployment.</p>
+
+  <div style="margin-top:2rem">
+    <a class="ghost-button" href="{{ url_for('phishing.index') }}">&#8592; Back to scanner</a>
+  </div>
+</article>
+{% endblock %}

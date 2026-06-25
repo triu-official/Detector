@@ -1,2 +1,25 @@
 {% extends "base.html" %}
-{% block content %}<section class="card legal-page"><h1>Disclaimer</h1><p>This detector provides automated risk assessments to assist analysts. It does not guarantee that any URL is safe or malicious.</p></section>{% endblock %}
+{% block content %}
+<article class="card legal-page" style="max-width:720px;margin:0 auto">
+  <p class="eyebrow">Legal</p>
+  <h1>Disclaimer</h1>
+
+  <p>Detector is an automated tool that assigns risk scores to URLs and domains using heuristic rules and, optionally, a machine-learning model. It is intended to assist security analysts and technically-minded users in identifying potentially suspicious links.</p>
+
+  <h2>No guarantee of accuracy</h2>
+  <p>Risk scores and labels produced by this service are <strong>estimates</strong>. They should not be treated as definitive proof that a URL is safe, malicious, or phishing. False positives (safe sites incorrectly flagged) and false negatives (dangerous sites not flagged) do occur. Always apply independent judgement before acting on a result.</p>
+
+  <h2>No legal or professional advice</h2>
+  <p>Nothing provided by this tool constitutes legal, cybersecurity, financial, or any other form of professional advice. Use the results only as one input in a broader investigation.</p>
+
+  <h2>Limitation of liability</h2>
+  <p>The operators of Detector accept no liability for any damages, losses, or consequences arising from reliance on the information produced by this service. You use it entirely at your own risk.</p>
+
+  <h2>Third-party data</h2>
+  <p>Domain intelligence is fetched from public WHOIS servers. Availability and accuracy of that data is outside our control.</p>
+
+  <div style="margin-top:2rem">
+    <a class="ghost-button" href="{{ url_for('phishing.index') }}">&#8592; Back to scanner</a>
+  </div>
+</article>
+{% endblock %}

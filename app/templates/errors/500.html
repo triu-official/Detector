@@ -1,2 +1,12 @@
 {% extends "base.html" %}
-{% block content %}<section class="card"><h1>Server error</h1><p>Something went wrong while processing your request. Please try again shortly.</p></section>{% endblock %}
+{% block content %}
+<article class="card" style="max-width:480px;margin:4rem auto;text-align:center">
+  <p class="eyebrow">Error 500</p>
+  <h1>Server error</h1>
+  <p class="muted">Something went wrong while processing your request. The issue has been logged and will be investigated.</p>
+  <div style="margin-top:1.5rem;display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+    <a class="primary-button" href="{{ url_for('phishing.index') }}">Go home</a>
+    <button class="ghost-button" onclick="history.back()">Go back</button>
+  </div>
+</article>
+{% endblock %}

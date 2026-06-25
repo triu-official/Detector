@@ -1,2 +1,12 @@
 {% extends "base.html" %}
-{% block content %}<section class="card"><h1>Page not found</h1><p>The page you requested does not exist.</p></section>{% endblock %}
+{% block content %}
+<article class="card" style="max-width:480px;margin:4rem auto;text-align:center">
+  <p class="eyebrow">Error 404</p>
+  <h1>Page not found</h1>
+  <p class="muted">The page you requested does not exist or has been moved.</p>
+  <div style="margin-top:1.5rem;display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+    <a class="primary-button" href="{{ url_for('phishing.index') }}">Go home</a>
+    <button class="ghost-button" onclick="history.back()">Go back</button>
+  </div>
+</article>
+{% endblock %}

@@ -1,2 +1,11 @@
 {% extends "base.html" %}
-{% block content %}<section class="card"><h1>Service unavailable</h1><p>The service is temporarily unavailable. Check system health or retry soon.</p></section>{% endblock %}
+{% block content %}
+<article class="card" style="max-width:480px;margin:4rem auto;text-align:center">
+  <p class="eyebrow">Error 503</p>
+  <h1>Service unavailable</h1>
+  <p class="muted">The service is temporarily unavailable. Please try again in a few moments.</p>
+  <div style="margin-top:1.5rem;display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+    <a class="primary-button" href="{{ url_for('phishing.index') }}">Try again</a>
+  </div>
+</article>
+{% endblock %}

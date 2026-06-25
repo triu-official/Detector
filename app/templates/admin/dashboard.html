@@ -1,26 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
+
 <section class="grid three-up stats-grid">
-  <article class="card"><h2>Total analyses</h2><p class="stat">{{ total }}</p></article>
-  <article class="card"><h2>% phishing</h2><p class="stat">{{ phishing_pct }}%</p></article>
-  <article class="card"><h2>Top phishing domain</h2><p class="stat">{{ top_domains[0][0] if top_domains else '—' }}</p></article>
+  <article class="card">
+    <p class="eyebrow">Total</p>
+    <h2>Analyses</h2>
+    <p class="stat">{{ total }}</p>
+  </article>
+  <article class="card">
+    <p class="eyebrow">Threat rate</p>
+    <h2>% Phishing</h2>
+    <p class="stat">{{ phishing_pct }}%</p>
+  </article>
+  <article class="card">
+    <p class="eyebrow">Most flagged</p>
+    <h2>Top domain</h2>
+    <p class="stat" style="font-size:1.1rem;word-break:break-all">{{ top_domains[0][0] if top_domains else '&mdash;' }}</p>
+  </article>
 </section>
 
 <section class="grid two-up">
   <article class="card">
     <div class="section-heading">
       <h2>Daily label trends</h2>
-      <a class="ghost-button" href="{{ url_for('admin.health_page') }}">System health</a>
+      <a class="ghost-button" href="{{ url_for('admin.health_page') }}">System health &rarr;</a>
     </div>
     <div class="trend-bars">
       {% for row in trends %}
         <div class="trend-row">
-          <span>{{ row.day }}</span>
+          <span style="min-width:90px">{{ row.day }}</span>
           <div class="bars">
-            <span class="bar safe" style="width: {{ row.safe * 18 + 8 }}px"></span>
-            <span class="bar suspicious" style="width: {{ row.suspicious * 18 + 8 }}px"></span>
-            <span class="bar phishing" style="width: {{ row.phishing * 18 + 8 }}px"></span>
+            <span class="bar safe" style="width:{{ [row.safe * 18 + 8, 8] | max }}px" title="safe: {{ row.safe }}"></span>
+            <span class="bar suspicious" style="width:{{ [row.suspicious * 18 + 8, 8] | max }}px" title="suspicious: {{ row.suspicious }}"></span>
+            <span class="bar phishing" style="width:{{ [row.phishing * 18 + 8, 8] | max }}px" title="phishing: {{ row.phishing }}"></span>
           </div>
+          <small class="muted">{{ row.safe }}s / {{ row.suspicious }}w / {{ row.phishing }}p</small>
         </div>
       {% else %}
         <p class="muted">Not enough data yet.</p>
@@ -29,23 +43,24 @@
     <h3>Top phishing domains</h3>
     <ul class="bullet-list">
       {% for domain, count in top_domains %}
-        <li>{{ domain }} — {{ count }}</li>
+        <li><strong>{{ domain }}</strong> &mdash; {{ count }} hit{{ 's' if count != 1 else '' }}</li>
       {% else %}
-        <li>No phishing-labelled domains yet.</li>
+        <li class="muted">No phishing-labelled domains yet.</li>
       {% endfor %}
     </ul>
   </article>
+
   <article class="card">
     <h2>Bulk CSV analysis</h2>
     <form method="post" action="{{ url_for('admin.batch_analyze') }}" enctype="multipart/form-data">
       {{ batch_form.csrf_token }}
       {{ batch_form.file(class_='input') }}
       <button class="primary-button" type="submit">Analyze CSV</button>
-      <p class="helper">Upload a CSV with a <code>url</code> column.</p>
+      <p class="helper">Upload a CSV with a <code>url</code> column. Up to {{ 50 }} URLs per batch.</p>
     </form>
-    <div class="action-row">
-      <a class="ghost-button" href="{{ url_for('admin.export_csv') }}">Export CSV</a>
-      <a class="ghost-button" href="{{ url_for('admin.export_pdf') }}">Export PDF</a>
+    <div class="action-row" style="margin-top:1rem">
+      <a class="ghost-button" href="{{ url_for('admin.export_csv') }}">&#11015; Export CSV</a>
+      <a class="ghost-button" href="{{ url_for('admin.export_pdf') }}">&#11015; Export PDF</a>
     </div>
   </article>
 </section>
@@ -55,16 +70,18 @@
     <h2>Manual blacklist</h2>
     <form method="post" action="{{ url_for('admin.add_blacklist_entry') }}">
       {{ blacklist_form.csrf_token }}
+      <label>Domain</label>
       {{ blacklist_form.domain(class_='input', placeholder='bad-domain.example') }}
-      {{ blacklist_form.reason(class_='input', rows='3', placeholder='Reason') }}
-      <button class="primary-button" type="submit">Add domain</button>
+      <label>Reason (optional)</label>
+      {{ blacklist_form.reason(class_='input', rows='2', placeholder='Why is this domain flagged?') }}
+      <button class="primary-button" type="submit">Add to blacklist</button>
     </form>
-    <div class="table-list">
+    <div class="table-list" style="margin-top:1rem">
       {% for entry in blacklist %}
         <div class="table-row">
           <div>
-            <strong>{{ entry.domain }}</strong>
-            <small>{{ entry.reason or 'No reason provided' }} · {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+            <strong>{{ entry.domain }}</strong><br>
+            <small class="muted">{{ entry.reason or 'No reason provided' }} &middot; {{ entry.created_at.strftime('%Y-%m-%d %H:%M') if entry.created_at else '' }}</small>
           </div>
           <form method="post" action="{{ url_for('admin.delete_blacklist_entry', entry_id=entry.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -76,21 +93,52 @@
       {% endfor %}
     </div>
   </article>
+
   <article class="card">
-    <h2>Recent analyses</h2>
+    <div class="section-heading">
+      <h2>Recent analyses</h2>
+      <span class="muted">Page {{ reports.page }} / {{ reports.pages }}</span>
+    </div>
     <div class="table-list">
       {% for row in reports.items %}
         <a class="table-row" href="{{ url_for('phishing.result_detail', analysis_id=row.id) }}">
           <div>
-            <strong>{{ row.domain }}</strong>
-            <small>{{ row.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
+            <strong>{{ row.domain }}</strong><br>
+            <small class="muted">{{ row.created_at.strftime('%Y-%m-%d %H:%M') if row.created_at else '' }}</small>
           </div>
-          <div class="pill pill-{{ row.label }}">{{ row.label }} · {{ row.risk_score }}</div>
+          <div class="pill pill-{{ row.label }}">{{ row.label }} &middot; {{ row.risk_score }}</div>
         </a>
       {% else %}
         <p class="muted">No analyses found.</p>
       {% endfor %}
     </div>
+    {% if reports.pages > 1 %}
+    <div class="action-row" style="margin-top:1rem;flex-wrap:wrap;gap:.5rem">
+      {% if reports.has_prev %}
+        <a class="ghost-button" href="?page={{ reports.prev_num }}{% if request.args.get('label') %}&label={{ request.args.get('label') }}{% endif %}{% if request.args.get('domain') %}&domain={{ request.args.get('domain') }}{% endif %}">&larr; Prev</a>
+      {% endif %}
+      {% for p in reports.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% if p %}
+          <a class="ghost-button{% if p == reports.page %} primary-button{% endif %}" href="?page={{ p }}">{{ p }}</a>
+        {% else %}
+          <span class="muted">&hellip;</span>
+        {% endif %}
+      {% endfor %}
+      {% if reports.has_next %}
+        <a class="ghost-button" href="?page={{ reports.next_num }}{% if request.args.get('label') %}&label={{ request.args.get('label') }}{% endif %}{% if request.args.get('domain') %}&domain={{ request.args.get('domain') }}{% endif %}">Next &rarr;</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <form method="get" action="{{ url_for('admin.dashboard') }}" style="margin-top:1.5rem" class="grid">
+      <div class="two-up grid" style="gap:.5rem">
+        <input class="input" name="label" placeholder="Filter by label (safe/suspicious/phishing)" value="{{ request.args.get('label','') }}">
+        <input class="input" name="domain" placeholder="Filter by domain" value="{{ request.args.get('domain','') }}">
+        <input class="input" name="date_from" type="date" value="{{ request.args.get('date_from','') }}">
+        <input class="input" name="date_to" type="date" value="{{ request.args.get('date_to','') }}">
+      </div>
+      <button class="ghost-button" type="submit">Apply filters</button>
+    </form>
   </article>
 </section>
 {% endblock %}
