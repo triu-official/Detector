@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -22,7 +21,7 @@ def _celery_default(key: str, redis_url: str, fallback: str) -> str:
 
 class BaseConfig:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
-    SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+    SECRET_KEY = os.getenv("SECRET_KEY", "")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///detector.db").replace(
         "postgres://", "postgresql://", 1
     )

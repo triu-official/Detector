@@ -162,7 +162,17 @@ def _sync_admin_user(app: Flask) -> None:
 
 
 def _validate_runtime_config(app: Flask) -> None:
-    """Warn if no admin password is configured; never crash in dev."""
+    """Warn if no admin password or SECRET_KEY is configured; never crash in dev."""
+    if not app.config.get("SECRET_KEY"):
+        env = app.config.get("FLASK_ENV", "development")
+        if env == "production":
+            raise RuntimeError("SECRET_KEY must be set in production.")
+        app.logger.warning(
+            "No SECRET_KEY set. Using a random key; sessions will be invalidated on restart. "
+            "Set SECRET_KEY in your .env for persistent sessions."
+        )
+        import secrets
+        app.config["SECRET_KEY"] = secrets.token_urlsafe(32)
     if not (app.config["ADMIN_PASSWORD_HASH"] or app.config["ADMIN_PASSWORD"]):
         # Use a safe default in development; warn but don't block startup
         env = app.config.get("FLASK_ENV", "development")

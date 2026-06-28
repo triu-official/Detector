@@ -40,8 +40,6 @@ def analyze_url_task(self, url: str) -> dict[str, Any]:
     """Run URL analysis inside the existing Flask app context."""
     from app.phishing.services import run_analysis
 
-    # Reuse the app initialised by init_celery; fall back to creating one only
-    # when the task runs in a standalone worker process.
     global _flask_app
     if _flask_app is None:
         from app import create_app

@@ -48,7 +48,7 @@ def analyze():
 
 @bp.route("/result/<int:analysis_id>")
 def result_detail(analysis_id: int):
-    analysis = Analysis.query.get_or_404(analysis_id)
+    analysis = db.get_or_404(Analysis, analysis_id)
     return render_template(
         "result.html",
         analysis=analysis,
@@ -233,7 +233,7 @@ def api_export_json():
 
 @bp.route("/feedback/<int:analysis_id>", methods=["POST"])
 def feedback(analysis_id: int):
-    analysis = Analysis.query.get_or_404(analysis_id)
+    analysis = db.get_or_404(Analysis, analysis_id)
     db.session.add(Feedback(analysis_id=analysis.id))
     db.session.commit()
     return jsonify({"status": "recorded"})

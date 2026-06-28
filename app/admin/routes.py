@@ -103,7 +103,7 @@ def add_blacklist_entry():
 @login_required
 @limiter.limit(lambda: current_app.config["ADMIN_RATE_LIMIT"])
 def delete_blacklist_entry(entry_id: int):
-    entry = Blacklist.query.get_or_404(entry_id)
+    entry = db.get_or_404(Blacklist, entry_id)
     domain = entry.domain
     db.session.delete(entry)
     db.session.commit()
@@ -191,7 +191,8 @@ def export_pdf():
     y -= 0.4 * inch
     pdf.setFont("Helvetica", 10)
     for row in rows:
-        line = f"{row.created_at:%Y-%m-%d %H:%M} | {row.label.upper():<10} | {row.risk_score:>3} | {row.domain}"
+        ts = row.created_at.strftime("%Y-%m-%d %H:%M") if row.created_at else "N/A"
+        line = f"{ts} | {row.label.upper():<10} | {row.risk_score:>3} | {row.domain}"
         pdf.drawString(inch, y, line[:110])
         y -= 0.25 * inch
         if y < inch:

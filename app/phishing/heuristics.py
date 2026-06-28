@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import socket
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -160,7 +161,9 @@ def get_domain_intelligence(
     info: dict[str, Any] = {"domain": host, "domain_age_days": 0, "registrar": "unknown"}
     reasons: list[str] = []
     try:
-        data = whois.whois(host)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(whois.whois, host)
+            data = future.result(timeout=15)
         creation = data.creation_date
         if isinstance(creation, list):
             creation = creation[0]
@@ -177,6 +180,8 @@ def get_domain_intelligence(
         registrar = getattr(data, "registrar", None)
         if registrar:
             info["registrar"] = str(registrar)
+    except FuturesTimeout:
+        reasons.append("WHOIS lookup timed out")
     except Exception:
         reasons.append("WHOIS lookup unavailable")
 

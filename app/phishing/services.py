@@ -83,6 +83,30 @@ def _cache_set(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
     redis_client.setex(key, ttl_seconds, json.dumps(payload))
 
 
+def _serialize_result(result: AnalysisResult) -> dict[str, Any]:
+    return {
+        "raw_url": result.raw_url,
+        "normalized_url": result.normalized_url,
+        "domain": result.domain,
+        "url_hash": result.url_hash,
+        "risk_score": result.risk_score,
+        "label": result.label,
+        "reasons": result.reasons,
+        "reachability": result.reachability,
+        "redirect_chain": result.redirect_chain,
+        "status_code": result.status_code,
+        "features_summary": result.features_summary,
+        "explanations": result.explanations,
+        "confidence": result.confidence,
+        "model_metadata": result.model_metadata,
+        "error_type": result.error_type,
+        "error_message": result.error_message,
+        "cache_hit": result.cache_hit,
+        "latency_ms": result.latency_ms,
+        "analysis_id": result.analysis_id,
+    }
+
+
 def blacklist_lookup(url_or_domain: str) -> tuple[bool, str | None]:
     try:
         domain = sanitized_domain(url_or_domain)
@@ -128,6 +152,8 @@ def _build_session() -> requests.Session:
 def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int) -> PageFetchResult:
     session = _build_session()
     last_exception: Exception | None = None
+    error_type = "unreachable"
+    message = "The target website could not be fetched"
     for _attempt in range(retry_count + 1):
         current_url = url
         redirect_chain = [url]
@@ -286,8 +312,6 @@ def score_analysis(features: dict[str, float], reasons: list[str], config: dict[
         label = "phishing"
     elif score >= config["SUSPICIOUS_THRESHOLD"]:
         label = "suspicious"
-    elif score >= config["SAFE_THRESHOLD"]:
-        label = "safe"
     else:
         label = "safe"
     return score, label
@@ -443,8 +467,9 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         cache_hit=False,
         latency_ms=int((time.perf_counter() - started_at) * 1000),
     )
-    _cache_set(cache_key, result.__dict__, config["RESULT_CACHE_TTL_SECONDS"])
-    runtime_state.model_loaded = load_model(config["MODEL_PATH"]) is not None
+    _cache_set(cache_key, _serialize_result(result), config["RESULT_CACHE_TTL_SECONDS"])
+    if config["MODEL_PATH"] and not runtime_state.model_loaded:
+        runtime_state.model_loaded = load_model(config["MODEL_PATH"]) is not None
     if persist:
         analysis = save_analysis(result)
         result.analysis_id = analysis.id
@@ -539,16 +564,26 @@ def filtered_reports(
 
 
 def label_counts_by_day(limit_days: int = 7) -> list[dict[str, Any]]:
-    analyses = Analysis.query.order_by(Analysis.created_at.asc()).all()
+    from sqlalchemy import func, cast, Date
+    rows = (
+        db.session.query(
+            cast(Analysis.created_at, Date).label("day"),
+            Analysis.label,
+            func.count(Analysis.id),
+        )
+        .group_by("day", Analysis.label)
+        .order_by("day")
+        .all()
+    )
     buckets: dict[str, Counter[str]] = {}
-    for analysis in analyses:
-        day = analysis.created_at.strftime("%Y-%m-%d")
-        buckets.setdefault(day, Counter())
-        buckets[day][analysis.label] += 1
-    rows = []
+    for day, label, count in rows:
+        day_str = day.isoformat()
+        buckets.setdefault(day_str, Counter())
+        buckets[day_str][label] = count
+    result = []
     for day in list(sorted(buckets))[-limit_days:]:
         counter = buckets[day]
-        rows.append(
+        result.append(
             {
                 "day": day,
                 "safe": counter.get("safe", 0),
@@ -556,7 +591,7 @@ def label_counts_by_day(limit_days: int = 7) -> list[dict[str, Any]]:
                 "phishing": counter.get("phishing", 0),
             }
         )
-    return rows
+    return result
 
 
 def top_phishing_domains(limit: int = 5) -> list[tuple[str, int]]:
