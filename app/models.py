@@ -9,6 +9,11 @@ from werkzeug.security import generate_password_hash
 from .extensions import db
 
 
+def _utcnow() -> datetime:
+    """Timezone-aware UTC now — replaces deprecated datetime.utcnow."""
+    return datetime.now(timezone.utc)
+
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
@@ -16,7 +21,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), default="admin", nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
     @classmethod
     def sync_admin_user(cls, username: str, password_hash: str) -> None:
@@ -58,7 +63,7 @@ class Analysis(db.Model):
     error_message = db.Column(db.String(255), nullable=True)
     cache_hit = db.Column(db.Boolean, default=False, nullable=False)
     latency_ms = db.Column(db.Integer, default=0, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class Blacklist(db.Model):
@@ -68,7 +73,7 @@ class Blacklist(db.Model):
     domain = db.Column(db.String(255), unique=True, nullable=False)
     reason = db.Column(db.String(500), default="", nullable=False)
     source = db.Column(db.String(255), default="manual", nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class Report(db.Model):
@@ -78,7 +83,7 @@ class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class Feedback(db.Model):
@@ -87,7 +92,7 @@ class Feedback(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     analysis_id = db.Column(db.Integer, db.ForeignKey("analyses.id"), nullable=False)
     message = db.Column(db.String(255), default="This result seems wrong", nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class RequestLog(db.Model):
@@ -99,7 +104,7 @@ class RequestLog(db.Model):
     path = db.Column(db.String(255), nullable=False)
     status_code = db.Column(db.Integer, nullable=False)
     duration_ms = db.Column(db.Integer, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 def summary_counts() -> dict[str, int]:
@@ -110,7 +115,8 @@ def summary_counts() -> dict[str, int]:
 
 
 def prune_old_data(*, request_log_retention_days: int, report_retention_days: int) -> dict[str, int]:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Use timezone-aware now to match timezone-aware column defaults
+    now = datetime.now(timezone.utc)
     request_log_cutoff = now - timedelta(days=max(request_log_retention_days, 1))
     report_cutoff = now - timedelta(days=max(report_retention_days, 1))
     deleted_request_logs = (

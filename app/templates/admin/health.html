@@ -9,9 +9,10 @@
     <div><dt>Total analyses</dt><dd>{{ health.total_analyses }}</dd></div>
   </dl>
   <h2>Last error</h2>
-  <pre class="log-box">{{ health.last_error or 'No errors recorded' }}</pre>
+  {# Render the last_error dict safely as formatted JSON — avoids [object Object] display #}
+  <pre class="log-box">{% if health.last_error %}{{ health.last_error | tojson(indent=2) }}{% else %}No errors recorded{% endif %}</pre>
   <h2>Recent logs summary</h2>
-  <pre class="log-box">{% for entry in health.recent_errors %}{{ entry }}
+  <pre class="log-box">{% for entry in health.recent_errors %}{{ entry | tojson }}
 {% else %}No recent server-side errors.
 {% endfor %}</pre>
 </section>

@@ -12,9 +12,9 @@ from flask import (
     url_for,
 )
 
-from app.extensions import limiter
+from app.extensions import db, limiter
 from app.forms import URLForm
-from app.models import Analysis, Feedback, db
+from app.models import Analysis, Feedback
 
 from .heuristics import AnalysisInputError, validate_url
 from .services import _build_explanations, filtered_reports, recent_analyses, run_analysis, serialize_analysis
@@ -48,6 +48,7 @@ def analyze():
 
 @bp.route("/result/<int:analysis_id>")
 def result_detail(analysis_id: int):
+    # Use db.get_or_404 — Query.get() is deprecated in SQLAlchemy 2.x
     analysis = db.get_or_404(Analysis, analysis_id)
     return render_template(
         "result.html",
@@ -100,8 +101,6 @@ def api_analyze_async():
     if not ok:
         return jsonify({"error": {"type": "invalid_url", "message": message}}), 400
 
-    # Try to dispatch via Celery; gracefully fall back to synchronous execution
-    # when Redis / broker is unavailable (e.g. local dev without Docker).
     try:
         from app.celery_app import analyze_url_task
         task_result = analyze_url_task.delay(url)
@@ -120,7 +119,6 @@ def api_analyze_async():
             extra={"error": str(broker_err)},
         )
 
-    # Synchronous fallback — run inline and return the full result immediately
     try:
         result = run_analysis(url, current_app.config)
     except AnalysisInputError as exc:
@@ -158,13 +156,12 @@ def api_job_status(job_id: str):
                 }),
                 400,
             )
-        message = "Analysis job failed unexpectedly"
         current_app.logger.error("analysis_job_failed", extra={"job_id": job_id})
         return (
             jsonify({
                 "job_id": job_id,
                 "status": "failed",
-                "error": {"type": "analysis_failed", "message": message},
+                "error": {"type": "analysis_failed", "message": "Analysis job failed unexpectedly"},
             }),
             500,
         )

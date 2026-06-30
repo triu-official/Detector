@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import socket
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -14,6 +14,10 @@ import whois
 SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "ow.ly"}
 SUSPICIOUS_KEYWORDS = {"login", "verify", "secure", "bank", "update", "confirm", "account", "password"}
 PHISHING_TLDS = {".xyz", ".top", ".club", ".info", ".work", ".click"}
+
+# Shared executor for blocking WHOIS lookups — keeps the gunicorn worker thread free
+_whois_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="whois")
+_WHOIS_TIMEOUT = 8.0  # seconds
 
 
 class AnalysisInputError(ValueError):
@@ -144,6 +148,12 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
     return features, reasons
 
 
+def _whois_lookup(host: str) -> Any:
+    """Run whois in a thread-pool future — raises on timeout."""
+    future = _whois_executor.submit(whois.whois, host)
+    return future.result(timeout=_WHOIS_TIMEOUT)
+
+
 def get_domain_intelligence(
     host: str,
     cache_get,
@@ -161,9 +171,7 @@ def get_domain_intelligence(
     info: dict[str, Any] = {"domain": host, "domain_age_days": 0, "registrar": "unknown"}
     reasons: list[str] = []
     try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(whois.whois, host)
-            data = future.result(timeout=15)
+        data = _whois_lookup(host)
         creation = data.creation_date
         if isinstance(creation, list):
             creation = creation[0]
@@ -180,9 +188,7 @@ def get_domain_intelligence(
         registrar = getattr(data, "registrar", None)
         if registrar:
             info["registrar"] = str(registrar)
-    except FuturesTimeout:
-        reasons.append("WHOIS lookup timed out")
-    except Exception:
+    except (FuturesTimeoutError, Exception):
         reasons.append("WHOIS lookup unavailable")
 
     cache_set(cache_key, {"info": info, "reasons": reasons}, ttl_seconds)

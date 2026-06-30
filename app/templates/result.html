@@ -12,39 +12,55 @@
   <div class="grid two-up">
     <section>
       <h2>Reachability</h2>
-      <p>{{ serialized.reachability.replace('_', ' ') }}</p>
-      {% if serialized.confidence is not none %}<p>Confidence: {{ serialized.confidence }}</p>{% endif %}
+      {# Use Jinja2 |replace filter — Python str.replace() is not valid here #}
+      <p>{{ serialized.reachability | replace('_', ' ') }}</p>
+      {% if serialized.confidence is not none %}
+        <p>Confidence: {{ (serialized.confidence * 100) | round(0) | int }}%</p>
+      {% endif %}
       {% if serialized.status_code %}<p>Status code: {{ serialized.status_code }}</p>{% endif %}
-      {% if serialized.error %}<p>{{ serialized.error.message }}</p>{% endif %}
+      {% if serialized.error %}<p class="flash flash-error">{{ serialized.error.message }}</p>{% endif %}
       <h3>Reasons</h3>
       <ul class="bullet-list">
         {% for reason in serialized.reasons %}
           <li>{{ reason }}</li>
+        {% else %}
+          <li class="muted">No specific signals detected.</li>
         {% endfor %}
       </ul>
     </section>
     <section>
       <h2>Feature summary</h2>
       <dl class="key-value">
-        {% for key, value in serialized.features_summary.feature_counts.items() %}
-          <div><dt>{{ key.replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>
-        {% endfor %}
+        {% set fc = serialized.features_summary.get('feature_counts') if serialized.features_summary else none %}
+        {% if fc %}
+          {% for key, value in fc.items() %}
+            <div><dt>{{ key | replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>
+          {% endfor %}
+        {% else %}
+          <div><dt class="muted">No feature data available.</dt><dd></dd></div>
+        {% endif %}
       </dl>
       <h3>Redirect chain</h3>
       <ol class="bullet-list">
         {% for item in serialized.redirect_chain %}
           <li>{{ item }}</li>
+        {% else %}
+          <li class="muted">No redirects.</li>
         {% endfor %}
       </ol>
-      {% if serialized.model %}
+      {% set model = serialized.get('model') if serialized is mapping else none %}
+      {% if model and (model.get('source') or model.get('model_name')) %}
         <h3>Model metadata</h3>
-        <p>Mode: {{ serialized.model.source }}{% if serialized.model.model_name %} · {{ serialized.model.model_name }}{% endif %}</p>
+        <p>Mode: {{ model.get('source', 'heuristic') }}{% if model.get('model_name') %} · {{ model.get('model_name') }}{% endif %}</p>
       {% endif %}
     </section>
   </div>
-  <form id="feedback-form" class="inline-form" method="post" action="{{ url_for('phishing.feedback', analysis_id=analysis.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button class="ghost-button" type="submit">This result seems wrong</button>
-  </form>
+  <div class="action-row" style="margin-top:1rem">
+    <a class="ghost-button" href="{{ url_for('phishing.index') }}">← Scan another URL</a>
+    <form id="feedback-form" class="inline-form" method="post" action="{{ url_for('phishing.feedback', analysis_id=analysis.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="ghost-button" type="submit">This result seems wrong</button>
+    </form>
+  </div>
 </article>
 {% endblock %}

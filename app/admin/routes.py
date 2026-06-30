@@ -10,7 +10,7 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 from werkzeug.security import check_password_hash
 
-from app.extensions import limiter
+from app.extensions import db, limiter
 from app.forms import BatchUploadForm, BlacklistForm, LoginForm
 from app.models import Analysis, Blacklist, Report, db, summary_counts
 from app.phishing.heuristics import AnalysisInputError
@@ -103,6 +103,7 @@ def add_blacklist_entry():
 @login_required
 @limiter.limit(lambda: current_app.config["ADMIN_RATE_LIMIT"])
 def delete_blacklist_entry(entry_id: int):
+    # Use db.get_or_404 — Query.get() is deprecated in SQLAlchemy 2.x
     entry = db.get_or_404(Blacklist, entry_id)
     domain = entry.domain
     db.session.delete(entry)
@@ -135,7 +136,7 @@ def batch_analyze():
             result = run_analysis(url, current_app.config)
             analysis = db.session.get(Analysis, result.analysis_id)
             rows.append(serialize_analysis(analysis))
-        except (AnalysisInputError, ValueError) as exc:  # pragma: no cover
+        except (AnalysisInputError, ValueError) as exc:
             current_app.logger.exception("batch_analysis_failed")
             rows.append({"analysis_id": "", "url": url, "risk_score": "", "label": "", "reasons": [str(exc)]})
 
@@ -191,6 +192,7 @@ def export_pdf():
     y -= 0.4 * inch
     pdf.setFont("Helvetica", 10)
     for row in rows:
+        # Guard against None created_at to avoid TypeError in f-string formatting
         ts = row.created_at.strftime("%Y-%m-%d %H:%M") if row.created_at else "N/A"
         line = f"{ts} | {row.label.upper():<10} | {row.risk_score:>3} | {row.domain}"
         pdf.drawString(inch, y, line[:110])
