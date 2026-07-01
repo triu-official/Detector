@@ -16,15 +16,6 @@
       <header class="topbar">
         <a class="brand" href="{{ url_for('phishing.index') }}">Detector</a>
         <nav class="topnav">
-          <a href="{{ url_for('phishing.disclaimer') }}">Disclaimer</a>
-          <a href="{{ url_for('phishing.privacy') }}">Privacy</a>
-          <a href="{{ url_for('phishing.terms') }}">Terms</a>
-          {% if current_user.is_authenticated %}
-            <a href="{{ url_for('admin.dashboard') }}">Admin</a>
-            <a href="{{ url_for('admin.logout') }}">Logout</a>
-          {% else %}
-            <a href="{{ url_for('admin.login') }}">Admin login</a>
-          {% endif %}
           <button id="theme-toggle" class="ghost-button" type="button" aria-label="Toggle dark mode">Theme</button>
         </nav>
       </header>
@@ -42,11 +33,6 @@
       </main>
       <footer class="footer">
         <p>Production-ready suspicious website detector with installable PWA support.</p>
-        <div>
-          <a href="{{ url_for('phishing.disclaimer') }}">Disclaimer</a>
-          <a href="{{ url_for('phishing.privacy') }}">Privacy</a>
-          <a href="{{ url_for('phishing.terms') }}">Terms</a>
-        </div>
       </footer>
     </div>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>

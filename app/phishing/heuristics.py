@@ -12,8 +12,11 @@ from urllib.parse import urljoin, urlparse
 import whois
 
 SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "ow.ly"}
-SUSPICIOUS_KEYWORDS = {"login", "verify", "secure", "bank", "update", "confirm", "account", "password"}
-PHISHING_TLDS = {".xyz", ".top", ".club", ".info", ".work", ".click"}
+SUSPICIOUS_KEYWORDS = {
+    "login", "verify", "secure", "bank", "update", "confirm", "account",
+    "password", "paypal", "signin", "wallet", "auth"
+}
+PHISHING_TLDS = {".xyz", ".top", ".club", ".info", ".work", ".click", ".pw", ".gq", ".tk"}
 
 # Shared executor for blocking WHOIS lookups — keeps the gunicorn worker thread free
 _whois_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="whois")
@@ -156,18 +159,10 @@ def _whois_lookup(host: str) -> Any:
 
 def get_domain_intelligence(
     host: str,
-    cache_get,
-    cache_set,
-    ttl_seconds: int,
     *,
     new_domain_days: int,
     young_domain_days: int,
 ) -> tuple[dict[str, Any], list[str]]:
-    cache_key = f"domain-intel:{host}"
-    cached = cache_get(cache_key)
-    if cached:
-        return cached["info"], cached["reasons"]
-
     info: dict[str, Any] = {"domain": host, "domain_age_days": 0, "registrar": "unknown"}
     reasons: list[str] = []
     try:
@@ -191,5 +186,4 @@ def get_domain_intelligence(
     except (FuturesTimeoutError, Exception):
         reasons.append("WHOIS lookup unavailable")
 
-    cache_set(cache_key, {"info": info, "reasons": reasons}, ttl_seconds)
     return info, reasons

@@ -4,7 +4,7 @@
   <div>
     <p class="eyebrow">Installable PWA</p>
     <h1>Scan URLs live, securely, and offline-aware.</h1>
-    <p class="lede">The Flask backend handles heuristic + ML-ready detection while the frontend behaves like a fast installable app with cached recent results.</p>
+    <p class="lede">The Flask backend uses heuristic detection while the frontend behaves like a fast installable app with cached recent results.</p>
     <div class="hero-actions">
       <button id="install-button" class="ghost-button hidden" type="button">Add to Home Screen</button>
       <button id="notify-button" class="ghost-button" type="button">Enable notifications</button>
@@ -19,12 +19,12 @@
 <section class="grid two-up">
   <article class="card">
     <h2>Analyze a website</h2>
-    <form id="analyze-form" method="post" action="{{ url_for('phishing.analyze') }}">
+    <form id="analyze-form" method="post" action="#">
       {{ form.csrf_token }}
       <label for="url">URL or domain</label>
       {{ form.url(class_='input', placeholder='https://example.com or example.com') }}
       <button class="primary-button" type="submit">Analyze now</button>
-      <p class="helper">Scans run asynchronously via worker jobs, then the page auto-updates when the result is ready.</p>
+      <p class="helper">Results appear instantly on the right once analysis completes.</p>
     </form>
     <div id="analysis-error" class="flash flash-error hidden"></div>
   </article>
@@ -40,11 +40,11 @@
     <h2>Recent analyses</h2>
     <div id="recent-results" class="recent-results">
       {% for item in recent %}
-        <a class="recent-item" href="{{ url_for('phishing.result_detail', analysis_id=item.id) }}">
+        <div class="recent-item">
           <span class="pill pill-{{ item.label }}">{{ item.label }}</span>
           <strong>{{ item.domain }}</strong>
           <small>{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</small>
-        </a>
+        </div>
       {% else %}
         <p class="muted">No scans yet.</p>
       {% endfor %}

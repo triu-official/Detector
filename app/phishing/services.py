@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import csv
-import json
-import os
+import hashlib
 import re
 import time
-from collections import Counter
-from dataclasses import asdict, dataclass
-from io import StringIO
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import requests
+import whois
+from bs4 import BeautifulSoup
 from flask import current_app
 from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -19,8 +20,8 @@ from requests.exceptions import Timeout as RequestsTimeout
 from sqlalchemy import func
 from urllib3.util.retry import Retry
 
-from app.extensions import redis_client, runtime_state
-from app.models import Analysis, Blacklist, db
+from app.extensions import db
+from app.models import Analysis
 
 from .heuristics import (
     AnalysisInputError,
@@ -33,7 +34,6 @@ from .heuristics import (
     validate_redirect_target,
     validate_url,
 )
-from .ml_model import load_model, predict
 
 
 @dataclass
@@ -50,12 +50,8 @@ class AnalysisResult:
     status_code: int | None
     features_summary: dict[str, Any]
     explanations: list[dict[str, str]]
-    confidence: float
-    model_metadata: dict[str, Any]
     error_type: str | None = None
     error_message: str | None = None
-    cache_hit: bool = False
-    latency_ms: int = 0
     analysis_id: int | None = None
 
 
@@ -68,51 +64,6 @@ class PageFetchResult:
     reachability: str
     error_type: str | None = None
     error_message: str | None = None
-
-
-def _cache_get(key: str) -> dict[str, Any] | None:
-    payload = redis_client.get(key)
-    if not payload:
-        return None
-    try:
-        return json.loads(payload)
-    except json.JSONDecodeError:
-        return None
-
-
-def _cache_set(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
-    try:
-        redis_client.setex(key, ttl_seconds, json.dumps(payload, default=str))
-    except (TypeError, ValueError):
-        pass  # Never crash the request because of a cache write failure
-
-
-def blacklist_lookup(url_or_domain: str) -> tuple[bool, str | None]:
-    try:
-        domain = sanitized_domain(url_or_domain)
-    except AnalysisInputError:
-        domain = url_or_domain.strip().lower()
-    entry = Blacklist.query.filter_by(domain=domain).first()
-    if not entry:
-        return False, None
-    source = entry.source.strip().lower() if entry.source else "manual"
-    return True, f"local:{source}"
-
-
-def _threat_intel_hit(domain: str, config: dict[str, Any]) -> str | None:
-    raw = (config.get("THREAT_INTEL_STATIC_DOMAINS") or "").strip()
-    if not raw:
-        return None
-    for item in raw.split(","):
-        payload = item.strip()
-        if not payload:
-            continue
-        item_domain, _, item_source = payload.partition(":")
-        normalized = item_domain.strip().lower()
-        if normalized and normalized == domain.lower():
-            source = item_source.strip() or "static-feed"
-            return f"intel:{source}"
-    return None
 
 
 def _build_session() -> requests.Session:
@@ -132,7 +83,6 @@ def _build_session() -> requests.Session:
 def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int) -> PageFetchResult:
     session = _build_session()
     last_exception: Exception | None = None
-    # Initialize so they are always bound even if the loop never raises
     error_type: str = "unreachable"
     message: str = "The target website could not be fetched"
 
@@ -219,123 +169,186 @@ def _build_explanations(reasons: list[str]) -> list[dict[str, str]]:
     return [{"code": _reason_code(reason), "message": reason} for reason in reasons]
 
 
-def _compute_confidence(score: int, label: str, config: dict[str, Any], *, ml_used: bool) -> float:
-    if label == "phishing":
-        boundary = config["PHISHING_THRESHOLD"]
-    elif label == "suspicious":
-        boundary = config["SUSPICIOUS_THRESHOLD"]
-    else:
-        boundary = config["SAFE_THRESHOLD"]
-    distance = abs(score - boundary)
-    base = min(0.45 + (distance / 100), 0.95)
-    if ml_used:
-        base = min(base + 0.03, 0.98)
-    return round(max(base, 0.35), 2)
-
-
-def analyze_page(
-    url: str, timeout: int, max_redirect_depth: int, retry_count: int
-) -> tuple[dict[str, float], PageFetchResult]:
-    fetch_result = fetch_page(url, timeout, max_redirect_depth, retry_count)
-    response = fetch_result.response
-    if response is None:
-        raise ReachabilityError(
-            message="The target website could not be fetched",
-            error_type="unreachable",
-        )
+def deep_content_inspection(response: Response, final_url: str) -> tuple[dict[str, float], list[str]]:
+    """Perform deep content inspection using BeautifulSoup."""
     signals = {
-        "form_count": 0.0,
-        "password_fields": 0.0,
-        "iframe_count": 0.0,
+        "has_password_field": 0.0,
         "external_form_action": 0.0,
+        "iframe_count": 0.0,
         "external_script_count": 0.0,
-        "redirect_count": float(max(len(fetch_result.redirect_chain) - 1, 0)),
+        "redirect_count": 0.0,
+        "missing_favicon": 1.0,
+        "no_contact_info": 1.0,
+        "no_privacy_policy_link": 1.0,
+        "copyright_year_outdated": 0.0,
+        "too_many_ads": 0.0,
     }
-    reasons = list(fetch_result.reasons)
-    text = response.text.lower()
-    signals["form_count"] = float(text.count("<form"))
-    signals["password_fields"] = float(text.count('type="password"') + text.count("type='password'"))
-    signals["iframe_count"] = float(text.count("<iframe"))
-    signals["external_script_count"] = float(text.count('<script src="http')) + float(text.count("<script src='http"))
-    signals["external_form_action"] = float('action="http' in text or "action='http" in text)
-    if signals["password_fields"] and not url.startswith("https://"):
-        reasons.append("Page contains password form with no HTTPS")
-    if signals["iframe_count"]:
-        reasons.append(f'Page contains iframe elements ({int(signals["iframe_count"])})')
-    if signals["external_script_count"]:
-        reasons.append("Page loads external scripts")
-    fetch_result.reasons = reasons
-    return signals, fetch_result
+    reasons: list[str] = []
 
+    if not response or not response.text:
+        return signals, reasons
 
-def score_analysis(features: dict[str, float], reasons: list[str], config: dict[str, Any]) -> tuple[int, str]:
-    score = 0
-    score += min(int(features["url_length"] / 7), 18)
-    score += int(features["subdomain_count"] * 6)
-    score += int(features["has_ip"] * 20)
-    score += min(int(features["suspicious_chars"] * 2), 12)
-    score += int(features["keyword_hits"] * 6)
-    score += int(features["is_shortener"] * 15)
-    score += int(features["phishing_tld"] * 12)
-    score += int((1 - features["uses_https"]) * 10)
-    score += int(features["password_fields"] * 10)
-    score += int(features["external_form_action"] * 12)
-    score += min(int(features["external_script_count"] * 3), 9)
-    score += min(int(features["redirect_count"] * 3), 12)
-    if 0 < features["domain_age_days"] < config["NEW_DOMAIN_DAYS"]:
-        score += config["NEW_DOMAIN_PENALTY"]
-    elif 0 < features["domain_age_days"] < config["YOUNG_DOMAIN_DAYS"]:
-        score += config["YOUNG_DOMAIN_PENALTY"]
-    if features["blacklisted"]:
-        score = max(score, 95)
-    if any("HTTP 4" in reason or "HTTP 5" in reason for reason in reasons):
-        score += 4
-    score = max(0, min(score, 100))
-    if score >= config["PHISHING_THRESHOLD"]:
-        label = "phishing"
-    elif score >= config["SUSPICIOUS_THRESHOLD"]:
-        label = "suspicious"
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    # Check for password fields
+    password_fields = soup.find_all("input", type="password")
+    if password_fields:
+        signals["has_password_field"] = float(len(password_fields))
+        reasons.append(f"Page contains {len(password_fields)} password field(s)")
+
+    # Check forms with external actions
+    for form in soup.find_all("form"):
+        action = form.get("action", "")
+        if action and (action.startswith("http://") or action.startswith("https://")):
+            parsed_action = urlparse(action)
+            parsed_final = urlparse(final_url)
+            if parsed_action.netloc != parsed_final.netloc:
+                signals["external_form_action"] = 1.0
+                reasons.append("Form submits to external domain")
+                break
+
+    # Check iframes
+    iframes = soup.find_all("iframe")
+    if iframes:
+        signals["iframe_count"] = float(len(iframes))
+        reasons.append(f"Page contains {len(iframes)} iframe(s)")
+
+    # Check external scripts
+    script_srcs = soup.find_all("script", src=True)
+    external_scripts = 0
+    ad_domains = 0
+    ad_keywords = ["ads", "advert", "doubleclick", "googlesyndication", "adsystem", "adnxs", "criteo", "rubiconproject"]
+    for script in script_srcs:
+        src = script.get("src", "")
+        if src.startswith("http://") or src.startswith("https://"):
+            parsed_src = urlparse(src)
+            parsed_final = urlparse(final_url)
+            if parsed_src.netloc != parsed_final.netloc:
+                external_scripts += 1
+                # Check for ad-related domains
+                if any(kw in parsed_src.netloc.lower() for kw in ad_keywords):
+                    ad_domains += 1
+    if external_scripts:
+        signals["external_script_count"] = float(external_scripts)
+        reasons.append(f"Page loads {external_scripts} external script(s)")
+    if ad_domains >= 3:
+        signals["too_many_ads"] = 1.0
+        reasons.append("Page loads scripts from multiple ad networks")
+
+    # Check for favicon
+    favicon = soup.find("link", rel=lambda x: x and "icon" in x.lower())
+    if favicon:
+        signals["missing_favicon"] = 0.0
+
+    # Check for contact info
+    text = soup.get_text(" ", strip=True).lower()
+    contact_keywords = ["contact", "email", "phone", "address", "support", "help"]
+    if not any(kw in text for kw in contact_keywords):
+        signals["no_contact_info"] = 1.0
+        reasons.append("No contact information found")
     else:
+        signals["no_contact_info"] = 0.0
+
+    # Check for privacy policy link
+    privacy_links = soup.find_all("a", href=True)
+    has_privacy = any("privacy" in link.get("href", "").lower() or "privacy" in link.get_text().lower() for link in privacy_links)
+    if not has_privacy:
+        signals["no_privacy_policy_link"] = 1.0
+        reasons.append("No privacy policy link found")
+    else:
+        signals["no_privacy_policy_link"] = 0.0
+
+    # Check copyright year
+    current_year = datetime.now().year
+    copyright_matches = re.findall(r"©|copyright|\(c\)\s*(\d{4})", text, re.IGNORECASE)
+    if copyright_matches:
+        try:
+            years = [int(y) for y in copyright_matches]
+            max_year = max(years)
+            if current_year - max_year > 3:
+                signals["copyright_year_outdated"] = 1.0
+                reasons.append(f"Copyright year outdated ({max_year})")
+        except ValueError:
+            pass
+
+    return signals, reasons
+
+
+def score_analysis(features: dict[str, float], page_signals: dict[str, float], reasons: list[str], config: dict[str, Any]) -> tuple[int, str]:
+    score = 0
+
+    # URL-level signals
+    if features.get("url_length", 0) > 75:
+        score += 8
+    if features.get("subdomain_count", 0) > 2:
+        score += int((features["subdomain_count"] - 2) * 6)
+    if features.get("has_ip", 0):
+        score += 20
+    suspicious_chars = int(features.get("suspicious_chars", 0))
+    score += min(suspicious_chars * 2, 12)
+    keyword_hits = int(features.get("keyword_hits", 0))
+    score += min(keyword_hits * 6, 24)
+    if features.get("is_shortener", 0):
+        score += 15
+    if features.get("phishing_tld", 0):
+        score += 12
+    if not features.get("uses_https", 1):
+        score += 10
+
+    # Domain intelligence
+    domain_age = features.get("domain_age_days", 0)
+    if 0 < domain_age < config.get("NEW_DOMAIN_DAYS", 7):
+        score += config.get("NEW_DOMAIN_PENALTY", 20)
+    elif 0 < domain_age < config.get("YOUNG_DOMAIN_DAYS", 30):
+        score += config.get("YOUNG_DOMAIN_PENALTY", 10)
+    if features.get("whois_unavailable", 0):
+        score += 5
+
+    # Page-level signals
+    if page_signals.get("has_password_field", 0) and not features.get("uses_https", 1):
+        score += 15
+    if page_signals.get("external_form_action", 0):
+        score += 12
+    iframe_count = int(page_signals.get("iframe_count", 0))
+    score += min(iframe_count * 5, 15)
+    external_script_count = int(page_signals.get("external_script_count", 0))
+    score += min(external_script_count * 3, 9)
+    redirect_count = int(page_signals.get("redirect_count", 0))
+    if redirect_count > 1:
+        score += min((redirect_count - 1) * 3, 12)
+    if page_signals.get("http_error_status", 0):
+        score += 8
+    if page_signals.get("missing_favicon", 1):
+        score += 4
+    if page_signals.get("no_contact_info", 1):
+        score += 5
+    if page_signals.get("no_privacy_policy_link", 1):
+        score += 4
+    if page_signals.get("copyright_year_outdated", 0):
+        score += 6
+    if page_signals.get("too_many_ads", 0):
+        score += 8
+    if page_signals.get("page_unreachable", 0):
+        score += 30
+
+    score = max(0, min(score, 100))
+
+    if score >= config.get("PHISHING_THRESHOLD", 80):
+        label = "phishing"
+    elif score >= config.get("SUSPICIOUS_THRESHOLD", 60):
+        label = "suspicious"
+    elif score < config.get("SAFE_THRESHOLD", 30):
         label = "safe"
+    else:
+        label = "suspicious"  # medium risk
+
     return score, label
-
-
-def _safe_cache_payload(result: "AnalysisResult") -> dict[str, Any]:
-    """Build a JSON-serializable dict from AnalysisResult for Redis caching.
-    Uses serialize_analysis shape so reconstruction is consistent."""
-    return {
-        "raw_url": result.raw_url,
-        "normalized_url": result.normalized_url,
-        "domain": result.domain,
-        "url_hash": result.url_hash,
-        "risk_score": result.risk_score,
-        "label": result.label,
-        "reasons": result.reasons,
-        "reachability": result.reachability,
-        "redirect_chain": result.redirect_chain,
-        "status_code": result.status_code,
-        "features_summary": result.features_summary,
-        "explanations": result.explanations,
-        "confidence": result.confidence,
-        "model_metadata": result.model_metadata,
-        "error_type": result.error_type,
-        "error_message": result.error_message,
-        "cache_hit": result.cache_hit,
-        "latency_ms": result.latency_ms,
-        "analysis_id": result.analysis_id,
-    }
 
 
 def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) -> AnalysisResult:
     started_at = time.perf_counter()
-    timeout = min(
-        max(int(config["REQUEST_TIMEOUT_SECONDS"]), 1),
-        max(int(config.get("MAX_REQUEST_TIMEOUT_SECONDS", 30)), 1),
-    )
-    retry_count = min(
-        max(int(config["REQUEST_RETRY_COUNT"]), 0),
-        max(int(config.get("MAX_REQUEST_RETRY_COUNT", 3)), 0),
-    )
+    timeout = max(int(config.get("REQUEST_TIMEOUT_SECONDS", 10)), 1)
+    retry_count = max(int(config.get("REQUEST_RETRY_COUNT", 1)), 0)
     normalized = normalize_url(raw_url)
     try:
         current_app.logger.info("analysis_started", extra={"raw_url": raw_url})
@@ -346,48 +359,62 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         raise AnalysisInputError(message)
     domain = sanitized_domain(normalized)
     hashed = url_hash(normalized)
-    cache_key = f"analysis:{hashed}"
-    cached = _cache_get(cache_key)
-    if cached:
-        cached.setdefault("explanations", _build_explanations(cached.get("reasons", [])))
-        cached.setdefault("confidence", 0.5)
-        cached.setdefault(
-            "model_metadata",
-            {"enabled": False, "used": False, "source": "heuristic", "model_name": ""},
-        )
-        # Remove Response object fields that cannot be in cache
-        cached.pop("response", None)
-        cached_result = AnalysisResult(**{k: v for k, v in cached.items() if k in AnalysisResult.__dataclass_fields__})
-        cached_result.cache_hit = True
-        if persist:
-            analysis = save_analysis(cached_result)
-            cached_result.analysis_id = analysis.id
-        return cached_result
 
+    # Extract URL features
     features, reasons = extract_url_features(normalized)
-    ml_used = False
 
-    # Initialize page fetch result variables so they are always bound
+    # Initialize page fetch result variables
     reachability: str = "unreachable"
     redirect_chain: list[str] = [normalized]
     status_code: int | None = None
     error_type: str | None = None
     error_message: str | None = None
+    page_signals: dict[str, float] = {
+        "has_password_field": 0.0,
+        "external_form_action": 0.0,
+        "iframe_count": 0.0,
+        "external_script_count": 0.0,
+        "redirect_count": 0.0,
+        "http_error_status": 0.0,
+        "missing_favicon": 1.0,
+        "no_contact_info": 1.0,
+        "no_privacy_policy_link": 1.0,
+        "copyright_year_outdated": 0.0,
+        "too_many_ads": 0.0,
+        "page_unreachable": 0.0,
+    }
 
+    # Fetch page and do deep content inspection
     try:
-        page_features, page_result = analyze_page(
+        page_result = fetch_page(
             normalized,
             timeout=timeout,
             max_redirect_depth=config["MAX_REDIRECT_DEPTH"],
             retry_count=retry_count,
         )
-        features.update(page_features)
-        reasons.extend(page_result.reasons)
-        reachability = page_result.reachability
-        redirect_chain = page_result.redirect_chain
-        status_code = page_result.response.status_code if page_result.response else None
-        error_type = page_result.error_type
-        error_message = page_result.error_message
+        response = page_result.response
+        if response:
+            reachability = page_result.reachability
+            redirect_chain = page_result.redirect_chain
+            status_code = response.status_code
+            error_type = page_result.error_type
+            error_message = page_result.error_message
+            reasons.extend(page_result.reasons)
+
+            # Track redirect count
+            page_signals["redirect_count"] = float(max(len(redirect_chain) - 1, 0))
+
+            # Track HTTP error status
+            if status_code and status_code >= 400:
+                page_signals["http_error_status"] = 1.0
+
+            # Deep content inspection
+            content_signals, content_reasons = deep_content_inspection(response, response.url)
+            page_signals.update(content_signals)
+            reasons.extend(content_reasons)
+        else:
+            page_signals["page_unreachable"] = 1.0
+            reasons.append("Page could not be fetched")
     except ReachabilityError as exc:
         reachability = "unreachable"
         redirect_chain = [normalized]
@@ -395,103 +422,52 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         error_type = exc.error_type
         error_message = exc.message
         reasons.append(exc.message)
-        features.update(
-            {
-                "form_count": 0.0,
-                "password_fields": 0.0,
-                "iframe_count": 0.0,
-                "external_form_action": 0.0,
-                "external_script_count": 0.0,
-                "redirect_count": 0.0,
-            }
-        )
+        page_signals["page_unreachable"] = 1.0
 
+    # Domain intelligence (WHOIS)
     domain_info, domain_reasons = get_domain_intelligence(
         domain,
-        cache_get=_cache_get,
-        cache_set=_cache_set,
-        ttl_seconds=config["DOMAIN_CACHE_TTL_SECONDS"],
-        new_domain_days=config["NEW_DOMAIN_DAYS"],
-        young_domain_days=config["YOUNG_DOMAIN_DAYS"],
+        new_domain_days=config.get("NEW_DOMAIN_DAYS", 7),
+        young_domain_days=config.get("YOUNG_DOMAIN_DAYS", 30),
     )
     features["domain_age_days"] = float(domain_info.get("domain_age_days", 0))
+    features["whois_unavailable"] = 1.0 if domain_info.get("domain_age_days", 0) == 0 and "WHOIS lookup unavailable" in domain_reasons else 0.0
     reasons.extend(domain_reasons)
-    blacklisted, blacklist_source = blacklist_lookup(domain)
-    intel_source = _threat_intel_hit(domain, config)
-    if intel_source:
-        blacklisted = True
-        blacklist_source = intel_source
-    features["blacklisted"] = 1.0 if blacklisted else 0.0
-    if features["blacklisted"]:
-        reasons.append("Domain appears on the local blacklist")
-        if blacklist_source:
-            reasons.append(f"Blacklist source: {blacklist_source}")
 
-    base_score, label = score_analysis(features, reasons, config)
-    ml_score, ml_reason = predict(features, config["MODEL_PATH"])
-    if ml_score is not None:
-        ml_used = True
-        base_score = int(
-            (base_score * config["HEURISTIC_BLEND_WEIGHT"])
-            + (ml_score * config["ML_BLEND_WEIGHT"])
-        )
-        if ml_reason:
-            reasons.append(ml_reason)
-        if base_score >= config["PHISHING_THRESHOLD"]:
-            label = "phishing"
-        elif base_score >= config["SUSPICIOUS_THRESHOLD"]:
-            label = "suspicious"
-        else:
-            label = "safe"
+    # Score the analysis
+    risk_score, label = score_analysis(features, page_signals, reasons, config)
 
-    summary = {
-        "top_reasons": reasons[:8],
-        "feature_counts": {key: value for key, value in features.items() if key != "path_length"},
+    # Build features_summary
+    features_summary = {
+        "url_features": {k: v for k, v in features.items() if k != "path_length"},
+        "page_signals": page_signals,
         "reachability": reachability,
         "status_code": status_code,
         "domain_age_days": features.get("domain_age_days", 0),
-        "blacklist_source": blacklist_source,
-        "explanations": [],
-        "confidence": None,
-        "model": {},
     }
     explanations = _build_explanations(list(dict.fromkeys(reasons)))
-    confidence = _compute_confidence(base_score, label, config, ml_used=ml_used)
-    model_metadata = {
-        "enabled": bool(config["MODEL_PATH"]),
-        "used": ml_used,
-        "source": "hybrid" if ml_used else "heuristic",
-        "model_name": os.path.basename(config["MODEL_PATH"]) if config["MODEL_PATH"] else "",
-    }
-    summary["explanations"] = explanations
-    summary["confidence"] = confidence
-    summary["model"] = model_metadata
+
     result = AnalysisResult(
         raw_url=raw_url,
         normalized_url=normalized,
         domain=domain,
         url_hash=hashed,
-        risk_score=max(0, min(base_score, 100)),
+        risk_score=risk_score,
         label=label,
         reasons=list(dict.fromkeys(reasons)),
         reachability=reachability,
         redirect_chain=redirect_chain,
         status_code=status_code,
-        features_summary=summary,
+        features_summary=features_summary,
         explanations=explanations,
-        confidence=confidence,
-        model_metadata=model_metadata,
         error_type=error_type,
         error_message=error_message,
-        cache_hit=False,
-        latency_ms=int((time.perf_counter() - started_at) * 1000),
     )
-    # Cache a safe JSON-serializable payload, not the raw dataclass __dict__
-    _cache_set(cache_key, _safe_cache_payload(result), config["RESULT_CACHE_TTL_SECONDS"])
-    runtime_state.model_loaded = load_model(config["MODEL_PATH"]) is not None
+
     if persist:
         analysis = save_analysis(result)
         result.analysis_id = analysis.id
+
     try:
         current_app.logger.info(
             "analysis_completed",
@@ -499,7 +475,7 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
                 "domain": result.domain,
                 "label": result.label,
                 "risk_score": result.risk_score,
-                "latency_ms": result.latency_ms,
+                "latency_ms": int((time.perf_counter() - started_at) * 1000),
             },
         )
     except RuntimeError:
@@ -509,7 +485,6 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
 
 def save_analysis(result: AnalysisResult) -> Analysis:
     analysis = Analysis(
-        url_hash=result.url_hash,
         raw_url=result.raw_url,
         normalized_url=result.normalized_url,
         domain=result.domain,
@@ -522,8 +497,6 @@ def save_analysis(result: AnalysisResult) -> Analysis:
         status_code=result.status_code,
         error_type=result.error_type,
         error_message=result.error_message,
-        cache_hit=result.cache_hit,
-        latency_ms=result.latency_ms,
     )
     db.session.add(analysis)
     db.session.commit()
@@ -543,109 +516,17 @@ def serialize_analysis(analysis: Analysis) -> dict[str, Any]:
         "redirect_chain": analysis.redirect_chain,
         "features_summary": features_summary,
         "explanations": features_summary.get("explanations", []),
-        "confidence": features_summary.get("confidence"),
-        "model": features_summary.get("model", {}),
-        "blacklist_source": features_summary.get("blacklist_source"),
         "status_code": analysis.status_code,
         "error": (
             {"type": analysis.error_type, "message": analysis.error_message}
             if analysis.error_type
             else None
         ),
-        "cache_hit": analysis.cache_hit,
         "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
+        "feedback": analysis.feedback,
+        "feedback_note": analysis.feedback_note,
     }
 
 
 def recent_analyses(limit: int = 10) -> list[Analysis]:
     return Analysis.query.order_by(Analysis.created_at.desc()).limit(limit).all()
-
-
-def filtered_reports(
-    *,
-    page: int,
-    per_page: int,
-    label: str | None,
-    domain: str | None,
-    date_from: str | None,
-    date_to: str | None,
-):
-    query = Analysis.query.order_by(Analysis.created_at.desc())
-    if label:
-        query = query.filter(Analysis.label == label)
-    if domain:
-        query = query.filter(Analysis.domain.ilike(f"%{domain.lower()}%"))
-    if date_from:
-        query = query.filter(Analysis.created_at >= date_from)
-    if date_to:
-        query = query.filter(Analysis.created_at <= date_to)
-    return query.paginate(page=page, per_page=per_page, error_out=False)
-
-
-def label_counts_by_day(limit_days: int = 7) -> list[dict[str, Any]]:
-    """Use a SQL GROUP BY query instead of loading all rows into memory."""
-    from datetime import timedelta
-    from datetime import timezone
-    from datetime import datetime as dt
-    from sqlalchemy import cast, Date
-
-    rows = (
-        db.session.query(
-            cast(Analysis.created_at, Date).label("day"),
-            Analysis.label,
-            func.count(Analysis.id).label("cnt"),
-        )
-        .group_by(cast(Analysis.created_at, Date), Analysis.label)
-        .order_by(cast(Analysis.created_at, Date).asc())
-        .all()
-    )
-
-    buckets: dict[str, Counter] = {}
-    for row in rows:
-        day_str = str(row.day)
-        buckets.setdefault(day_str, Counter())
-        buckets[day_str][row.label] += row.cnt
-
-    result = []
-    for day in list(sorted(buckets))[-limit_days:]:
-        counter = buckets[day]
-        result.append(
-            {
-                "day": day,
-                "safe": counter.get("safe", 0),
-                "suspicious": counter.get("suspicious", 0),
-                "phishing": counter.get("phishing", 0),
-            }
-        )
-    return result
-
-
-def top_phishing_domains(limit: int = 5) -> list[tuple[str, int]]:
-    rows = (
-        db.session.query(Analysis.domain, func.count(Analysis.id))
-        .filter(Analysis.label == "phishing")
-        .group_by(Analysis.domain)
-        .order_by(func.count(Analysis.id).desc())
-        .limit(limit)
-        .all()
-    )
-    return [(row[0], row[1]) for row in rows]
-
-
-def analyses_to_csv(rows: list[Analysis]) -> str:
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["analysis_id", "url", "domain", "score", "label", "reachability", "created_at"])
-    for row in rows:
-        writer.writerow(
-            [
-                row.id,
-                row.normalized_url,
-                row.domain,
-                row.risk_score,
-                row.label,
-                row.reachability,
-                row.created_at.isoformat() if row.created_at else "",
-            ]
-        )
-    return output.getvalue()

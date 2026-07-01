@@ -1,4 +1,3 @@
-// In-memory cache — avoids localStorage which is blocked in sandboxed iframes
 const _memCache = { results: [] };
 let deferredInstallPrompt = null;
 
@@ -19,7 +18,6 @@ function getCsrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
 
-// Safe storage helpers — try sessionStorage, fall back to in-memory
 function readRecentResults() {
   try {
     return JSON.parse(sessionStorage.getItem('detector-recent') || '[]');
@@ -45,19 +43,22 @@ function updateCachedCount() {
 
 function renderResult(target, result) {
   const label = safeLabel(result.label);
-  const score = result.risk_score ?? result.score ?? 0;
-  const reasons = (result.reasons || result.explanations || [])
+  const score = result.risk_score ?? 0;
+  const reasons = (result.reasons || [])
     .map((r) => `<li>${escapeHtml(typeof r === 'string' ? r : r.detail || r.reason || JSON.stringify(r))}</li>`)
     .join('');
   const domain = escapeHtml(result.domain || result.url || '');
   const reachability = (result.reachability || 'unknown').replaceAll('_', ' ');
+  const errorHtml = result.error
+    ? `<p class="flash flash-error">${escapeHtml(result.error.message || '')}</p>`
+    : '';
   target.innerHTML = `
     <div class="pill pill-${label}">${escapeHtml(String(score))}/100 · ${escapeHtml(label)}</div>
     <p><strong>${domain}</strong></p>
     <p class="muted">${escapeHtml(result.url || '')}</p>
     <p>Reachability: ${reachability}</p>
     ${reasons ? `<ul class="bullet-list">${reasons}</ul>` : ''}
-    <a class="ghost-button" href="/result/${escapeHtml(String(result.analysis_id || result.id || ''))}">Open full details &rarr;</a>
+    ${errorHtml}
   `;
 }
 
@@ -67,14 +68,12 @@ function prependRecentResult(result) {
   const container = document.getElementById('recent-results');
   if (!container) return;
   const label = safeLabel(result.label);
-  const link = document.createElement('a');
-  link.className = 'recent-item';
-  link.href = `/result/${result.analysis_id || result.id}`;
-  link.innerHTML = `<span class="pill pill-${label}">${escapeHtml(label)}</span><strong>${escapeHtml(result.domain || result.url)}</strong><small>just now</small>`;
-  // Remove placeholder if present
+  const item = document.createElement('div');
+  item.className = 'recent-item';
+  item.innerHTML = `<span class="pill pill-${label}">${escapeHtml(label)}</span><strong>${escapeHtml(result.domain || result.url)}</strong><small>just now</small>`;
   const placeholder = container.querySelector('.muted');
   if (placeholder) placeholder.remove();
-  container.prepend(link);
+  container.prepend(item);
 }
 
 async function registerServiceWorker() {
@@ -128,44 +127,13 @@ function setupThemeToggle() {
   });
 }
 
-// Resolve the final result object whether we got async job or sync response
-async function resolveAnalysisResult(responsePayload, responseOk) {
-  if (!responseOk) {
-    throw new Error(responsePayload.error?.message || 'Unable to analyze URL. Please try again.');
-  }
-
-  // Sync fallback path — result is embedded directly
-  if (responsePayload.status === 'completed' && responsePayload.result) {
-    return responsePayload.result;
-  }
-
-  // Async path — poll job status
-  const statusUrl = responsePayload.status_url;
-  if (!statusUrl) {
-    throw new Error('Unexpected response from server.');
-  }
-
-  for (let attempt = 0; attempt < 30; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    const statusResp = await fetch(statusUrl, {
-      headers: { 'X-CSRFToken': getCsrfToken() },
-    });
-    const statusPayload = await statusResp.json();
-    if (statusPayload.status === 'completed') return statusPayload.result;
-    if (statusPayload.status === 'failed') {
-      throw new Error(statusPayload.error?.message || 'Analysis job failed.');
-    }
-  }
-  throw new Error('Analysis is taking longer than expected. Please try again in a moment.');
-}
-
 function setLoadingState(resultContent, loading) {
   if (loading) {
     resultContent.innerHTML = `
       <div class="skeleton skeleton-text" style="width:60%"></div>
       <div class="skeleton skeleton-text"></div>
       <div class="skeleton skeleton-text" style="width:80%"></div>
-      <p class="muted" style="margin-top:1rem">Analyzing URL…</p>
+      <p class="muted" style="margin-top:1rem">Analyzing URL\u2026</p>
     `;
   }
 }
@@ -189,22 +157,22 @@ function setupAnalyzeForm() {
     }
 
     const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Analyzing…'; }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Analyzing\u2026'; }
     setLoadingState(resultContent, true);
 
     try {
-      // Try async endpoint first; if it returns completed immediately (sync fallback) we use that
-      const response = await fetch('/api/analyze/async', {
+      const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
         body: JSON.stringify({ url }),
       });
-      const payload = await response.json();
-      const result = await resolveAnalysisResult(payload, response.ok);
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error?.message || 'Unable to analyze URL. Please try again.');
+      }
       renderResult(resultContent, result);
       prependRecentResult(result);
 
-      // Push notification for risky labels
       if (
         'serviceWorker' in navigator &&
         Notification.permission === 'granted' &&
@@ -234,7 +202,7 @@ function setupFeedback() {
       method: 'POST',
       headers: { 'X-CSRFToken': getCsrfToken() },
     });
-    if (response.ok) form.innerHTML = '<p class="helper">Feedback recorded — thank you!</p>';
+    if (response.ok) form.innerHTML = '<p class="helper">Feedback recorded \u2014 thank you!</p>';
   });
 }
 
@@ -245,7 +213,7 @@ function setupOfflineView() {
     offlineResults.innerHTML = cached.length
       ? cached.map((item) => {
           const label = safeLabel(item.label);
-          return `<a class="recent-item" href="/result/${escapeHtml(String(item.analysis_id || item.id || ''))}"><span class="pill pill-${label}">${escapeHtml(label)}</span><strong>${escapeHtml(item.domain || item.url)}</strong><small>${escapeHtml(item.url || '')}</small></a>`;
+          return `<div class="recent-item"><span class="pill pill-${label}">${escapeHtml(label)}</span><strong>${escapeHtml(item.domain || item.url)}</strong><small>${escapeHtml(item.url || '')}</small></div>`;
         }).join('')
       : '<p class="muted">No cached results yet.</p>';
   }
