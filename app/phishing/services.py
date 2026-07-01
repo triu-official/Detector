@@ -6,7 +6,7 @@ import os
 import re
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from io import StringIO
 from typing import Any
 
@@ -16,6 +16,7 @@ from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout, RequestException, SSLError
 from requests.exceptions import Timeout as RequestsTimeout
+from sqlalchemy import func
 from urllib3.util.retry import Retry
 
 from app.extensions import redis_client, runtime_state
@@ -80,31 +81,10 @@ def _cache_get(key: str) -> dict[str, Any] | None:
 
 
 def _cache_set(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
-    redis_client.setex(key, ttl_seconds, json.dumps(payload))
-
-
-def _serialize_result(result: AnalysisResult) -> dict[str, Any]:
-    return {
-        "raw_url": result.raw_url,
-        "normalized_url": result.normalized_url,
-        "domain": result.domain,
-        "url_hash": result.url_hash,
-        "risk_score": result.risk_score,
-        "label": result.label,
-        "reasons": result.reasons,
-        "reachability": result.reachability,
-        "redirect_chain": result.redirect_chain,
-        "status_code": result.status_code,
-        "features_summary": result.features_summary,
-        "explanations": result.explanations,
-        "confidence": result.confidence,
-        "model_metadata": result.model_metadata,
-        "error_type": result.error_type,
-        "error_message": result.error_message,
-        "cache_hit": result.cache_hit,
-        "latency_ms": result.latency_ms,
-        "analysis_id": result.analysis_id,
-    }
+    try:
+        redis_client.setex(key, ttl_seconds, json.dumps(payload, default=str))
+    except (TypeError, ValueError):
+        pass  # Never crash the request because of a cache write failure
 
 
 def blacklist_lookup(url_or_domain: str) -> tuple[bool, str | None]:
@@ -152,8 +132,10 @@ def _build_session() -> requests.Session:
 def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int) -> PageFetchResult:
     session = _build_session()
     last_exception: Exception | None = None
-    error_type = "unreachable"
-    message = "The target website could not be fetched"
+    # Initialize so they are always bound even if the loop never raises
+    error_type: str = "unreachable"
+    message: str = "The target website could not be fetched"
+
     for _attempt in range(retry_count + 1):
         current_url = url
         redirect_chain = [url]
@@ -173,10 +155,10 @@ def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int
                             message="Redirect response did not include a location header",
                             error_type="invalid_redirect",
                         )
-                    ok, message, next_url = validate_redirect_target(current_url, location)
+                    ok, msg, next_url = validate_redirect_target(current_url, location)
                     if not ok:
                         raise ReachabilityError(
-                            message=message or "Redirect target was blocked by network policy",
+                            message=msg or "Redirect target was blocked by network policy",
                             error_type="blocked_redirect",
                         )
                     current_url = next_url
@@ -224,6 +206,7 @@ def fetch_page(url: str, timeout: int, max_redirect_depth: int, retry_count: int
             last_exception = exc
             error_type = "unreachable"
             message = "The target website could not be fetched"
+
     raise ReachabilityError(message=message, error_type=error_type) from last_exception
 
 
@@ -317,6 +300,32 @@ def score_analysis(features: dict[str, float], reasons: list[str], config: dict[
     return score, label
 
 
+def _safe_cache_payload(result: "AnalysisResult") -> dict[str, Any]:
+    """Build a JSON-serializable dict from AnalysisResult for Redis caching.
+    Uses serialize_analysis shape so reconstruction is consistent."""
+    return {
+        "raw_url": result.raw_url,
+        "normalized_url": result.normalized_url,
+        "domain": result.domain,
+        "url_hash": result.url_hash,
+        "risk_score": result.risk_score,
+        "label": result.label,
+        "reasons": result.reasons,
+        "reachability": result.reachability,
+        "redirect_chain": result.redirect_chain,
+        "status_code": result.status_code,
+        "features_summary": result.features_summary,
+        "explanations": result.explanations,
+        "confidence": result.confidence,
+        "model_metadata": result.model_metadata,
+        "error_type": result.error_type,
+        "error_message": result.error_message,
+        "cache_hit": result.cache_hit,
+        "latency_ms": result.latency_ms,
+        "analysis_id": result.analysis_id,
+    }
+
+
 def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) -> AnalysisResult:
     started_at = time.perf_counter()
     timeout = min(
@@ -346,7 +355,9 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             "model_metadata",
             {"enabled": False, "used": False, "source": "heuristic", "model_name": ""},
         )
-        cached_result = AnalysisResult(**cached)
+        # Remove Response object fields that cannot be in cache
+        cached.pop("response", None)
+        cached_result = AnalysisResult(**{k: v for k, v in cached.items() if k in AnalysisResult.__dataclass_fields__})
         cached_result.cache_hit = True
         if persist:
             analysis = save_analysis(cached_result)
@@ -355,6 +366,14 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
 
     features, reasons = extract_url_features(normalized)
     ml_used = False
+
+    # Initialize page fetch result variables so they are always bound
+    reachability: str = "unreachable"
+    redirect_chain: list[str] = [normalized]
+    status_code: int | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+
     try:
         page_features, page_result = analyze_page(
             normalized,
@@ -467,9 +486,9 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         cache_hit=False,
         latency_ms=int((time.perf_counter() - started_at) * 1000),
     )
-    _cache_set(cache_key, _serialize_result(result), config["RESULT_CACHE_TTL_SECONDS"])
-    if config["MODEL_PATH"] and not runtime_state.model_loaded:
-        runtime_state.model_loaded = load_model(config["MODEL_PATH"]) is not None
+    # Cache a safe JSON-serializable payload, not the raw dataclass __dict__
+    _cache_set(cache_key, _safe_cache_payload(result), config["RESULT_CACHE_TTL_SECONDS"])
+    runtime_state.model_loaded = load_model(config["MODEL_PATH"]) is not None
     if persist:
         analysis = save_analysis(result)
         result.analysis_id = analysis.id
@@ -534,7 +553,7 @@ def serialize_analysis(analysis: Analysis) -> dict[str, Any]:
             else None
         ),
         "cache_hit": analysis.cache_hit,
-        "created_at": analysis.created_at.isoformat(),
+        "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
     }
 
 
@@ -564,22 +583,29 @@ def filtered_reports(
 
 
 def label_counts_by_day(limit_days: int = 7) -> list[dict[str, Any]]:
-    from sqlalchemy import func, cast, Date
+    """Use a SQL GROUP BY query instead of loading all rows into memory."""
+    from datetime import timedelta
+    from datetime import timezone
+    from datetime import datetime as dt
+    from sqlalchemy import cast, Date
+
     rows = (
         db.session.query(
             cast(Analysis.created_at, Date).label("day"),
             Analysis.label,
-            func.count(Analysis.id),
+            func.count(Analysis.id).label("cnt"),
         )
-        .group_by("day", Analysis.label)
-        .order_by("day")
+        .group_by(cast(Analysis.created_at, Date), Analysis.label)
+        .order_by(cast(Analysis.created_at, Date).asc())
         .all()
     )
-    buckets: dict[str, Counter[str]] = {}
-    for day, label, count in rows:
-        day_str = day.isoformat()
+
+    buckets: dict[str, Counter] = {}
+    for row in rows:
+        day_str = str(row.day)
         buckets.setdefault(day_str, Counter())
-        buckets[day_str][label] = count
+        buckets[day_str][row.label] += row.cnt
+
     result = []
     for day in list(sorted(buckets))[-limit_days:]:
         counter = buckets[day]
@@ -596,10 +622,10 @@ def label_counts_by_day(limit_days: int = 7) -> list[dict[str, Any]]:
 
 def top_phishing_domains(limit: int = 5) -> list[tuple[str, int]]:
     rows = (
-        db.session.query(Analysis.domain, db.func.count(Analysis.id))
+        db.session.query(Analysis.domain, func.count(Analysis.id))
         .filter(Analysis.label == "phishing")
         .group_by(Analysis.domain)
-        .order_by(db.func.count(Analysis.id).desc())
+        .order_by(func.count(Analysis.id).desc())
         .limit(limit)
         .all()
     )
@@ -619,7 +645,7 @@ def analyses_to_csv(rows: list[Analysis]) -> str:
                 row.risk_score,
                 row.label,
                 row.reachability,
-                row.created_at.isoformat(),
+                row.created_at.isoformat() if row.created_at else "",
             ]
         )
     return output.getvalue()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,7 +11,6 @@ load_dotenv(BASE_DIR / ".env")
 
 
 def _celery_default(key: str, redis_url: str, fallback: str) -> str:
-    """Return env var, or redis_url if set, else the in-process fallback."""
     val = os.getenv(key, "")
     if val:
         return val
@@ -21,12 +21,19 @@ def _celery_default(key: str, redis_url: str, fallback: str) -> str:
 
 class BaseConfig:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
-    SECRET_KEY = os.getenv("SECRET_KEY", "")
+    # SECRET_KEY MUST be set via environment in production — never rely on a random default
+    # that changes on every restart (invalidates all sessions).
+    SECRET_KEY: str
+    _secret_key_env = os.getenv("SECRET_KEY", "")
+    if _secret_key_env:
+        SECRET_KEY = _secret_key_env
+    else:
+        # Development fallback: generate once per process (sessions survive restarts only in dev)
+        SECRET_KEY = secrets.token_urlsafe(32)
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///detector.db").replace(
         "postgres://", "postgresql://", 1
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    # Redis is optional — falls back to in-memory when REDIS_URL is empty
     REDIS_URL = os.getenv("REDIS_URL", "")
     RATELIMIT_STORAGE_URI = REDIS_URL if REDIS_URL else "memory://"
     SESSION_COOKIE_HTTPONLY = True
@@ -64,11 +71,9 @@ class BaseConfig:
     REPORT_RETENTION_DAYS = int(os.getenv("REPORT_RETENTION_DAYS", "90"))
     CLEANUP_INTERVAL_SECONDS = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "3600"))
     THREAT_INTEL_STATIC_DOMAINS = os.getenv("THREAT_INTEL_STATIC_DOMAINS", "")
-    # Celery: default to in-process eager execution when no Redis is configured
-    _redis_url = REDIS_URL  # evaluated at class body time
+    _redis_url = REDIS_URL
     CELERY_BROKER_URL = _celery_default("CELERY_BROKER_URL", _redis_url, "memory://")
     CELERY_RESULT_BACKEND = _celery_default("CELERY_RESULT_BACKEND", _redis_url, "cache+memory://")
-    # When no Redis, run tasks eagerly in the same process
     CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "true" if not REDIS_URL else "false").lower() == "true"
     CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
     CELERY_TASK_STORE_EAGER_RESULT = os.getenv("CELERY_TASK_STORE_EAGER_RESULT", "true").lower() == "true"
@@ -93,6 +98,14 @@ class DevelopmentConfig(BaseConfig):
 
 class ProductionConfig(BaseConfig):
     SESSION_COOKIE_SECURE = True
+
+    @classmethod
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+
+    def __init_production_checks(self) -> None:
+        if not os.getenv("SECRET_KEY"):
+            raise RuntimeError("SECRET_KEY environment variable must be set in production.")
 
 
 class TestingConfig(BaseConfig):
