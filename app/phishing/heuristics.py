@@ -18,6 +18,13 @@ SUSPICIOUS_KEYWORDS = {
 }
 PHISHING_TLDS = {".xyz", ".top", ".club", ".info", ".work", ".click", ".pw", ".gq", ".tk"}
 
+TOP_BRANDS = {
+    "google", "amazon", "microsoft", "apple", "facebook",
+    "paypal", "netflix", "linkedin", "twitter", "instagram",
+    "whatsapp", "youtube", "adobe", "dropbox", "salesforce",
+    "chase", "bankofamerica", "wellsfargo", "citi", "yahoo"
+}
+
 _whois_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="whois")
 _WHOIS_TIMEOUT = 10.0
 
@@ -65,6 +72,23 @@ def url_hash(value: str) -> str:
 def sanitized_domain(value: str) -> str:
     parsed = urlparse(normalize_url(value))
     return (parsed.hostname or "").strip(".").lower().encode("idna").decode("ascii")
+
+
+def levenshtein_distance(s1: str, s2: str) -> int:
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    previous_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
 
 
 def _is_public_host(host: str | None) -> bool:
@@ -136,8 +160,20 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
     if len(url) > 75:
         reasons.append(f"URL length is unusually long ({len(url)} chars)")
 
+    is_typosquatting = 0.0
+    for part in host.split('.'):
+        for brand in TOP_BRANDS:
+            dist = levenshtein_distance(part, brand)
+            if 0 < dist <= 2:
+                is_typosquatting = 1.0
+                reasons.append(f"Domain appears to be typosquatting a known brand ({brand})")
+                break
+        if is_typosquatting:
+            break
+
     features = {
         "url_length": float(len(url)),
+        "is_typosquatting": is_typosquatting,
         "subdomain_count": float(subdomain_count),
         "has_ip": has_ip,
         "suspicious_chars": float(suspicious_char_count),

@@ -367,6 +367,23 @@ def deep_content_inspection(response: Response, final_url: str) -> tuple[dict[st
         signals["meta_tags_missing"] = 1.0
         reasons.append("Missing important meta tags (description/keywords)")
 
+    # Zero-Connection Content Similarity Check
+    suspicious_words = ['login', 'verify', 'password', 'security', 'suspended', 'banking', 'wallet', 'account']
+    page_text = text
+    found_words = [word for word in suspicious_words if word in page_text]
+
+    parsed_final = urlparse(final_url)
+    domain_parts = parsed_final.netloc.split('.')
+    is_domain_mismatched = True
+    for word in found_words:
+        if any(word in part for part in domain_parts):
+            is_domain_mismatched = False
+            break
+
+    if len(found_words) >= 3 and is_domain_mismatched:
+        signals["content_domain_mismatch"] = 1.0
+        reasons.append(f"Page uses multiple high-urgency keywords ({', '.join(found_words)}) but domain is mismatched")
+
     return signals, reasons
 
 
@@ -376,6 +393,8 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
     # URL-level signals
     if features.get("url_length", 0) > 75:
         score += 8
+    if features.get("is_typosquatting", 0):
+        score += 30
     if features.get("subdomain_count", 0) > 2:
         score += int((features["subdomain_count"] - 2) * 6)
     if features.get("has_ip", 0):
@@ -424,6 +443,8 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         score += 6
     if page_signals.get("too_many_ads", 0):
         score += 8
+    if page_signals.get("content_domain_mismatch", 0):
+        score += 20
     if page_signals.get("page_unreachable", 0):
         score += 30
 
@@ -446,10 +467,13 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     timeout = max(int(config.get("REQUEST_TIMEOUT_SECONDS", 10)), 1)
     retry_count = max(int(config.get("REQUEST_RETRY_COUNT", 1)), 0)
     normalized = normalize_url(raw_url)
+
     try:
-        current_app.logger.info("analysis_started", extra={"raw_url": raw_url})
+        current_app.logger.info("================ STARTING DETECTION PIPELINE ================")
+        current_app.logger.info(f"Targeting URL: {normalized}")
     except RuntimeError:
         pass
+
     ok, message = validate_url(normalized)
     if not ok:
         raise AnalysisInputError(message)
@@ -482,6 +506,12 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
 
     # Fetch page and do deep content inspection
     try:
+        try:
+            current_app.logger.info("[STEP 1/3] Initializing BeautifulSoup Parser...")
+        except RuntimeError:
+            pass
+        bs_start_time = time.perf_counter()
+
         page_result = fetch_page(
             normalized,
             timeout=timeout,
@@ -508,9 +538,23 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             content_signals, content_reasons = deep_content_inspection(response, response.url)
             page_signals.update(content_signals)
             reasons.extend(content_reasons)
+
+            try:
+                bs_duration = time.perf_counter() - bs_start_time
+                current_app.logger.info(f"[SUCCESS] BeautifulSoup parsing completed in {bs_duration:.4f}s.")
+                form_count = int(content_signals.get("has_password_field", 0))
+                iframe_count = int(content_signals.get("iframe_count", 0))
+                script_count = int(content_signals.get("external_script_count", 0))
+                current_app.logger.info(f"[SCRAPER AUDIT DATA] Found issues related to: {form_count} password fields, {iframe_count} iframes, {script_count} scripts.")
+            except RuntimeError:
+                pass
         else:
             page_signals["page_unreachable"] = 1.0
             reasons.append("Page could not be fetched")
+            try:
+                current_app.logger.error("[FAILURE] BeautifulSoup Scraper failed: Page could not be fetched.")
+            except RuntimeError:
+                pass
     except ReachabilityError as exc:
         reachability = "unreachable"
         redirect_chain = [normalized]
@@ -521,6 +565,11 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         page_signals["page_unreachable"] = 1.0
 
     # Domain intelligence (WHOIS)
+    try:
+        current_app.logger.info("[STEP 2/3] Executing Local Heuristic Rule-Engine...")
+    except RuntimeError:
+        pass
+
     domain_info, domain_reasons = get_domain_intelligence(
         domain,
         new_domain_days=config.get("NEW_DOMAIN_DAYS", 7),
@@ -533,6 +582,12 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
 
     # Score the analysis
     risk_score, label = score_analysis(features, page_signals, reasons, config)
+
+    try:
+        current_app.logger.info("[SUCCESS] Heuristic Execution Complete.")
+        current_app.logger.info(f"[HEURISTIC AUDIT DATA] Score: {risk_score}% | Label: {label}")
+    except RuntimeError:
+        pass
 
     # Crawl additional pages within the same domain
     all_page_texts: list[str] = []
@@ -577,22 +632,34 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         analysis = save_analysis(result)
         result.analysis_id = analysis.id
 
+    try:
+        current_app.logger.info("[STEP 3/3] Conditioning Data & Triggering AI Agent...")
+        mock_payload = {
+            "model": "gemini-2.5-flash-lite",
+            "url_context": result.normalized_url,
+            "scraped_text_sample": (page_text[:200].strip().replace('\n', ' ') + "...") if page_text else "None"
+        }
+        current_app.logger.info(f"[API OUTBOUND PAYLOAD] Dispatching JSON to Gemini: {json.dumps(mock_payload)}")
+    except RuntimeError:
+        pass
+
     ai_data = ai_service.analyze_with_ai(result.normalized_url, page_text, features_summary)
     result.ai_analysis = ai_data
+
+    try:
+        if ai_data and ai_data.get("available"):
+            current_app.logger.info("[API INBOUND RESPONSE] Token Exchange Complete. Received from Gemini Remote Host:")
+            current_app.logger.info(f"    -> AI Verdict: {ai_data.get('is_fake')}")
+            current_app.logger.info(f"    -> AI Confidence: {ai_data.get('confidence_score')}%")
+            current_app.logger.info(f"    -> AI Analytical Reasoning: '{ai_data.get('reasoning')}'")
+    except RuntimeError:
+        pass
 
     json_file = _save_result_json(result)
     result.json_file = json_file
 
     try:
-        current_app.logger.info(
-            "analysis_completed",
-            extra={
-                "domain": result.domain,
-                "label": result.label,
-                "risk_score": result.risk_score,
-                "latency_ms": int((time.perf_counter() - started_at) * 1000),
-            },
-        )
+        current_app.logger.info("================ PIPELINE PROCESSING COMPLETE ================\n")
     except RuntimeError:
         pass
     return result

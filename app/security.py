@@ -47,11 +47,11 @@ def configure_logging(app: Flask) -> None:
     formatter: logging.Formatter = (
         JsonFormatter()
         if app.config["FLASK_ENV"] == "production"
-        else logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        else logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     )
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
-    file_handler = RotatingFileHandler("instance/detector.log", maxBytes=5_000_000, backupCount=3)
+    file_handler = RotatingFileHandler("backend_audit.log", maxBytes=5_000_000, backupCount=3)
     file_handler.setFormatter(formatter)
     app.logger.handlers.clear()
     app.logger.setLevel(logging.INFO)
