@@ -29,8 +29,11 @@
       {% if dinfo.creation_date %}
       <div><span>Registered On</span><span>{{ dinfo.creation_date }}</span></div>
       {% endif %}
-      {% if data.features_summary.domain_age_days %}
+      {% if data.features_summary.domain_age_days is not none %}
       <div><span>Domain Age</span><span>{{ (data.features_summary.domain_age_days / 365) | round(1) }} years ({{ data.features_summary.domain_age_days | int }} days)</span></div>
+      {% endif %}
+      {% if data.features_summary.domain_info.domain_age_bucket %}
+      <div><span>Age Bucket</span><span>{{ data.features_summary.domain_info.domain_age_bucket }}</span></div>
       {% endif %}
       {% if dinfo.expiration_date %}
       <div><span>Expires On</span><span>{{ dinfo.expiration_date }}</span></div>
@@ -56,8 +59,36 @@
     {% else %}
     <p class="muted">No specific signals detected.</p>
     {% endif %}
+
+    {% if data.features_summary %}
+      {% if data.features_summary.url_features and data.features_summary.url_features.brand_impersonation %}
+      <div style="margin-top: 1rem; color: var(--danger);">
+        <strong>Warning:</strong> This domain is flagged for brand impersonation.
+      </div>
+      {% endif %}
+      {% if data.features_summary.page_signals and data.features_summary.page_signals.binary_response %}
+      <div style="margin-top: 1rem; color: var(--warning);">
+        <strong>Notice:</strong> The content returned was binary or non-HTML and was skipped by the deep content inspector.
+      </div>
+      {% endif %}
+    {% endif %}
   </article>
 </section>
+
+{% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.status == 'success' %}
+<section class="card">
+  <h2>VirusTotal Enrichment</h2>
+  <div class="key-value">
+    {% set vt = data.features_summary.page_signals.vt_summary %}
+    <div><span>Malicious</span><span class="score-phishing">{{ vt.malicious_count }}</span></div>
+    <div><span>Suspicious</span><span class="score-suspicious">{{ vt.suspicious_count }}</span></div>
+    <div><span>Harmless / Undetected</span><span class="score-safe">{{ vt.harmless_count }} / {{ vt.undetected_count }}</span></div>
+    {% if vt.permalink %}
+    <div><span>Report</span><span><a href="{{ vt.permalink }}" target="_blank" rel="noopener noreferrer">View on VirusTotal</a></span></div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
 
 {% if data.ai_analysis and data.ai_analysis.available %}
 <section class="card">

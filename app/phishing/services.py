@@ -450,20 +450,41 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
     if not features.get("uses_https", 1):
         score += 10
 
-    # Domain intelligence
-    domain_age = features.get("domain_age_days", 0)
-    if 0 < domain_age < config.get("NEW_DOMAIN_DAYS", 7):
-        score += config.get("NEW_DOMAIN_PENALTY", 20)
-    elif 0 < domain_age < config.get("YOUNG_DOMAIN_DAYS", 30):
-        score += config.get("YOUNG_DOMAIN_PENALTY", 10)
+    # Domain intelligence base penalties based on age buckets
+    domain_age = features.get("domain_age_days", -1)
+    if domain_age >= 0 and not features.get("whois_unavailable", 0):
+        if domain_age < config.get("DOMAIN_AGE_EXTREME_RISK_DAYS", 30):
+            score += 35  # Extremely high risk base
+        elif domain_age < config.get("DOMAIN_AGE_VERY_HIGH_RISK_DAYS", 90):
+            score += 25  # Very high risk base
+        elif domain_age < config.get("DOMAIN_AGE_HIGH_RISK_DAYS", 180):
+            score += 15  # High risk base
+        elif domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
+            score += 8   # Moderate risk base
+
     if features.get("whois_unavailable", 0):
         score += 5
 
     # Page-level signals - only apply if page was successfully fetched and not bot-blocked
     page_fetched = not page_signals.get("page_unreachable", 0)
     bot_blocked = page_signals.get("bot_detection", 0)
+    binary_response = page_signals.get("binary_response", 0)
 
-    if page_fetched and not bot_blocked:
+    # Apply compound risks (TLD + Young Age + Brand Impersonation)
+    if domain_age > 0 and domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
+        if features.get("brand_impersonation", 0):
+            score += 25
+            reasons.append("High risk compound: Domain contains a brand name and is newly registered")
+
+            if features.get("phishing_tld", 0):
+                score += 15
+                reasons.append("Critical risk compound: Domain contains a brand name, is newly registered, and uses a suspicious TLD")
+
+        elif features.get("phishing_tld", 0):
+            score += 15
+            reasons.append("High risk compound: Suspicious TLD combined with recently registered domain")
+
+    if page_fetched and not bot_blocked and not binary_response:
         if page_signals.get("has_password_field", 0) and not features.get("uses_https", 1):
             score += 15
         if page_signals.get("external_form_action", 0):
@@ -496,6 +517,9 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         # This is common for legitimate sites - small penalty only
         score += 5
 
+    elif binary_response:
+        score += 15
+
     # Page unreachable handling - contextual penalty (only if NOT bot-blocked)
     elif page_signals.get("page_unreachable", 0):
         if domain_age > config.get("YOUNG_DOMAIN_DAYS", 30):
@@ -505,16 +529,28 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
             # Young/unverified domain that's unreachable - more suspicious
             score += 20
 
+    # Optional VirusTotal bump
+    vt_summary = page_signals.get("vt_summary", {})
+    if vt_summary and vt_summary.get("status") == "success":
+        malicious = vt_summary.get("malicious_count", 0)
+        suspicious = vt_summary.get("suspicious_count", 0)
+        if malicious > 0:
+            score += min(malicious * 15, 30) # Cap VT bump to 30 points
+            reasons.append(f"VirusTotal reported {malicious} engine(s) detecting URL as malicious")
+        if suspicious > 0:
+            score += min(suspicious * 5, 10)
+            reasons.append(f"VirusTotal reported {suspicious} engine(s) detecting URL as suspicious")
+
     score = max(0, min(score, 100))
 
-    if score >= config.get("PHISHING_THRESHOLD", 80):
+    if score >= config.get("PHISHING_THRESHOLD", 50):
         label = "phishing"
-    elif score >= config.get("SUSPICIOUS_THRESHOLD", 60):
+    elif score >= config.get("SUSPICIOUS_THRESHOLD", 25):
         label = "suspicious"
-    elif score < config.get("SAFE_THRESHOLD", 30):
+    elif score < config.get("SAFE_THRESHOLD", 25):
         label = "safe"
     else:
-        label = "suspicious"  # medium risk
+        label = "suspicious"  # fallback
 
     return score, label
 
@@ -546,7 +582,7 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     status_code: int | None = None
     error_type: str | None = None
     error_message: str | None = None
-    page_signals: dict[str, float] = {
+    page_signals: dict[str, Any] = {
         "has_password_field": 0.0,
         "external_form_action": 0.0,
         "iframe_count": 0.0,
@@ -560,6 +596,7 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         "too_many_ads": 0.0,
         "page_unreachable": 0.0,
         "bot_detection": 0.0,
+        "binary_response": 0.0,
     }
 
     # Fetch page and do deep content inspection
@@ -592,17 +629,28 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             if status_code and status_code >= 400:
                 page_signals["http_error_status"] = 1.0
 
-            # Detect bot-detection pages (reCAPTCHA, Cloudflare challenge)
-            bot_blocked = _is_bot_blocked(response.text or "")
-            if bot_blocked:
-                page_signals["bot_detection"] = 1.0
-                # Don't run deep content inspection on bot-blocked pages
-                # as the content is just the challenge page, not real site content
+            content_type = response.headers.get("Content-Type", "").lower()
+            is_text_content = "text/html" in content_type or "application/xhtml+xml" in content_type or "text/plain" in content_type
+
+            if not is_text_content and content_type:
+                page_signals["binary_response"] = 1.0
+                reasons.append(f"Fetched content is not HTML/text (Content-Type: {content_type}). Treating as suspicious binary payload.")
+                try:
+                    current_app.logger.warning(f"[SCRAPER AUDIT DATA] Skipping content parsing. Binary or non-standard Content-Type detected: {content_type}")
+                except RuntimeError:
+                    pass
             else:
-                # Deep content inspection
-                content_signals, content_reasons = deep_content_inspection(response, response.url)
-                page_signals.update(content_signals)
-                reasons.extend(content_reasons)
+                # Detect bot-detection pages (reCAPTCHA, Cloudflare challenge)
+                bot_blocked = _is_bot_blocked(response.text or "")
+                if bot_blocked:
+                    page_signals["bot_detection"] = 1.0
+                    # Don't run deep content inspection on bot-blocked pages
+                    # as the content is just the challenge page, not real site content
+                else:
+                    # Deep content inspection
+                    content_signals, content_reasons = deep_content_inspection(response, response.url)
+                    page_signals.update(content_signals)
+                    reasons.extend(content_reasons)
 
             try:
                 bs_duration = time.perf_counter() - bs_start_time
@@ -640,16 +688,23 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
 
     domain_info, domain_reasons = get_domain_intelligence(
         domain,
-        new_domain_days=config.get("NEW_DOMAIN_DAYS", 7),
-        young_domain_days=config.get("YOUNG_DOMAIN_DAYS", 30),
         whois_api_key=config.get("WHOIS_API_KEY", ""),
     )
-    features["domain_age_days"] = float(domain_info.get("domain_age_days", 0))
-    features["whois_unavailable"] = 1.0 if domain_info.get("domain_age_days", 0) == 0 and "WHOIS lookup unavailable" in domain_reasons else 0.0
+    features["domain_age_days"] = float(domain_info.get("domain_age_days", -1))
+    features["domain_age_bucket"] = domain_info.get("domain_age_bucket")
+    features["whois_unavailable"] = 1.0 if domain_info.get("domain_age_days", -1) == -1 and "WHOIS lookup unavailable" in domain_reasons else 0.0
     reasons.extend(domain_reasons)
+
+    # VirusTotal Integration
+    if config.get("VT_ENABLED", False) and config.get("VT_API_KEY"):
+        from app.phishing.virustotal import get_virustotal_report
+        vt_data = get_virustotal_report(normalized, config)
+        if vt_data:
+            page_signals["vt_summary"] = vt_data
 
     # Score the analysis
     risk_score, label = score_analysis(features, page_signals, reasons, config)
+
 
     try:
         current_app.logger.info("[SUCCESS] Heuristic Execution Complete.")
@@ -657,12 +712,12 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
     except RuntimeError:
         pass
 
-    # Crawl additional pages within the same domain
+    # Crawl additional pages within the same domain (skip if binary)
     all_page_texts: list[str] = []
-    crawled_text = ""
-    if response is not None and hasattr(response, "text") and response.text:
+    if response is not None and not page_signals.get("binary_response", 0) and hasattr(response, "text") and response.text:
         all_page_texts.append(response.text)
-    if status_code == 200:
+
+    if status_code == 200 and not page_signals.get("binary_response", 0):
         crawl_text, crawl_reasons = crawl_website(normalized, max_pages=5, timeout=min(timeout, 5))
         if crawl_text:
             all_page_texts.append(crawl_text)
@@ -681,6 +736,7 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             "expiration_date": domain_info.get("expiration_date"),
             "registrar": domain_info.get("registrar", "unknown"),
             "name_servers": domain_info.get("name_servers", []),
+            "domain_age_bucket": domain_info.get("domain_age_bucket", ""),
         },
     }
     explanations = _build_explanations(list(dict.fromkeys(reasons)))
@@ -706,28 +762,35 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         analysis = save_analysis(result)
         result.analysis_id = analysis.id
 
-    try:
-        current_app.logger.info("[STEP 3/3] Conditioning Data & Triggering AI Agent...")
-        mock_payload = {
-            "model": "gemini (auto-selected)",
-            "url_context": result.normalized_url,
-            "scraped_text_sample": (page_text[:200].strip().replace('\n', ' ') + "...") if page_text else "None"
-        }
-        current_app.logger.info(f"[API OUTBOUND PAYLOAD] Dispatching JSON to Gemini: {json.dumps(mock_payload)}")
-    except RuntimeError:
-        pass
+    if page_signals.get("binary_response", 0):
+        try:
+            current_app.logger.info("[STEP 3/3] AI Verification Skipped (Binary Payload Detected)")
+        except RuntimeError:
+            pass
+        result.ai_analysis = {"available": False, "reasoning": "Skipped AI verification because target appears to be binary/non-text content."}
+    else:
+        try:
+            current_app.logger.info("[STEP 3/3] Conditioning Data & Triggering AI Agent...")
+            mock_payload = {
+                "model": "gemini (auto-selected)",
+                "url_context": result.normalized_url,
+                "scraped_text_sample": (page_text[:200].strip().replace('\n', ' ') + "...") if page_text else "None"
+            }
+            current_app.logger.info(f"[API OUTBOUND PAYLOAD] Dispatching JSON to Gemini: {json.dumps(mock_payload)}")
+        except RuntimeError:
+            pass
 
-    ai_data = ai_service.analyze_with_ai(result.normalized_url, page_text, features_summary)
-    result.ai_analysis = ai_data
+        ai_data = ai_service.analyze_with_ai(result.normalized_url, page_text, features_summary)
+        result.ai_analysis = ai_data
 
-    try:
-        if ai_data and ai_data.get("available"):
-            current_app.logger.info("[API INBOUND RESPONSE] Token Exchange Complete. Received from Gemini Remote Host:")
-            current_app.logger.info(f"    -> AI Verdict: {ai_data.get('is_fake')}")
-            current_app.logger.info(f"    -> AI Confidence: {ai_data.get('confidence_score')}%")
-            current_app.logger.info(f"    -> AI Analytical Reasoning: '{ai_data.get('reasoning')}'")
-    except RuntimeError:
-        pass
+        try:
+            if ai_data and ai_data.get("available"):
+                current_app.logger.info("[API INBOUND RESPONSE] Token Exchange Complete. Received from Gemini Remote Host:")
+                current_app.logger.info(f"    -> AI Verdict: {ai_data.get('is_fake')}")
+                current_app.logger.info(f"    -> AI Confidence: {ai_data.get('confidence_score')}%")
+                current_app.logger.info(f"    -> AI Analytical Reasoning: '{ai_data.get('reasoning')}'")
+        except RuntimeError:
+            pass
 
     json_file = _save_result_json(result)
     result.json_file = json_file
@@ -812,7 +875,7 @@ def _save_result_json(result: AnalysisResult) -> str | None:
     }
     file_path = results_dir / f"{result.analysis_id}.json"
     with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, default=str)
+        json.dump(data, f, indent=4, default=str, sort_keys=True)
     return str(file_path)
 
 

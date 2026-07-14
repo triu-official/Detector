@@ -21,7 +21,8 @@ TOP_BRANDS = {
     "google", "amazon", "microsoft", "apple", "facebook",
     "paypal", "netflix", "linkedin", "twitter", "instagram",
     "whatsapp", "youtube", "adobe", "dropbox", "salesforce",
-    "chase", "bankofamerica", "wellsfargo", "citi", "yahoo"
+    "chase", "bankofamerica", "wellsfargo", "citi", "yahoo",
+    "tanishq", "tata", "fairplay", "sbiyono", "hdfc"
 }
 
 
@@ -157,19 +158,32 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
         reasons.append(f"URL length is unusually long ({len(url)} chars)")
 
     is_typosquatting = 0.0
-    for part in host.split('.'):
-        for brand in TOP_BRANDS:
+    brand_impersonation = 0.0
+    brand_hits = []
+    host_no_tld = host.split(".")[0].lower() if "." in host else host.lower()
+
+    for brand in TOP_BRANDS:
+        # Check direct brand inclusion (e.g. tatabook, tanishq777)
+        if brand in host_no_tld:
+            # If the brand is inside the host, it's highly likely impersonation if not the exact brand domain
+            if host_no_tld != brand:
+                brand_impersonation = 1.0
+                brand_hits.append(brand)
+                reasons.append(f"Domain contains known brand token '{brand}' with appended words or digits")
+
+        # Typosquatting (distance)
+        for part in host.split('.'):
             dist = levenshtein_distance(part, brand)
             if 0 < dist <= 2:
                 is_typosquatting = 1.0
                 reasons.append(f"Domain appears to be typosquatting a known brand ({brand})")
                 break
-        if is_typosquatting:
-            break
 
     features = {
         "url_length": float(len(url)),
         "is_typosquatting": is_typosquatting,
+        "brand_impersonation": brand_impersonation,
+        "brand_hits": brand_hits,
         "subdomain_count": float(subdomain_count),
         "has_ip": has_ip,
         "suspicious_chars": float(suspicious_char_count),
@@ -185,13 +199,11 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
 def get_domain_intelligence(
     host: str,
     *,
-    new_domain_days: int,
-    young_domain_days: int,
     whois_api_key: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     info: dict[str, Any] = {
         "domain": host,
-        "domain_age_days": 0,
+        "domain_age_days": -1,
         "registrar": "unknown",
         "creation_date": None,
         "expiration_date": None,
@@ -218,10 +230,34 @@ def get_domain_intelligence(
             info["domain_age_days"] = age_days
             info["creation_date"] = creation_utc.strftime("%Y-%m-%d")
 
-            if age_days < new_domain_days:
-                reasons.append(f"Domain registered less than {new_domain_days} days ago")
-            elif age_days < young_domain_days:
-                reasons.append(f"Domain registered less than {young_domain_days} days ago")
+            # Use fixed domain age buckets from config (defaults hardcoded here for fallback)
+            config = {}
+            try:
+                from flask import current_app
+                if current_app:
+                    config = current_app.config
+            except Exception:
+                pass
+
+            age_30 = config.get("DOMAIN_AGE_EXTREME_RISK_DAYS", 30)
+            age_90 = config.get("DOMAIN_AGE_VERY_HIGH_RISK_DAYS", 90)
+            age_180 = config.get("DOMAIN_AGE_HIGH_RISK_DAYS", 180)
+            age_365 = config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365)
+
+            if age_days < age_30:
+                reasons.append(f"Domain registered less than {age_30} days ago (Extremely high risk factor)")
+                info["domain_age_bucket"] = "< 30 days"
+            elif age_days < age_90:
+                reasons.append(f"Domain registered less than {age_90} days ago (Very high risk factor)")
+                info["domain_age_bucket"] = "< 90 days"
+            elif age_days < age_180:
+                reasons.append(f"Domain registered less than {age_180} days ago (High risk factor)")
+                info["domain_age_bucket"] = "< 180 days"
+            elif age_days < age_365:
+                reasons.append(f"Domain registered less than {age_365} days ago (Moderate risk factor)")
+                info["domain_age_bucket"] = "< 365 days"
+            else:
+                info["domain_age_bucket"] = ">= 365 days"
 
         if w.registrar:
             info["registrar"] = str(w.registrar)
