@@ -1,91 +1,63 @@
 # Detector
 
-Production-ready suspicious website detector built as a Flask backend with an installable PWA frontend.
+Local-first suspicious website detector built as a Flask backend with an installable PWA frontend.
+
+Analyzes URLs using local heuristics (URL patterns, domain age, brand impersonation, content signals) with optional enrichment from VirusTotal, Google Safe Browsing, urlscan.io, and AbuseIPDB. No paid AI dependency.
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-python -m venv .venv
-source .venv/bin/activate
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS/Linux
 pip install -r requirements.txt
 python run.py
 ```
 
-## Docker quick start
+The app runs at http://127.0.0.1:5000
 
-```bash
-docker compose up --build
-```
+## How it works
 
-## Default local admin credentials
-
-- Username: `admin`
-- Password: value from `ADMIN_PASSWORD` in `.env`
-
-Change these before production use, or set `ADMIN_PASSWORD_HASH` instead.
-
-## Access URLs
-
-- App: http://localhost:5000
-- Admin dashboard: http://localhost:5000/admin
-- Health: http://localhost:5000/health
-- Metrics: http://localhost:5000/metrics
+1. Enter a URL in the search bar
+2. The app fetches the page, parses content, and scores it against local heuristic rules
+3. Optional external APIs enrich the analysis when keys are configured
+4. A full report with score breakdown, signals, and enrichment results is displayed
 
 ## Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `SECRET_KEY` | Flask session and CSRF secret |
-| `DATABASE_URL` | SQLAlchemy connection string |
-| `ANALYZE_RATE_LIMIT` | Public analyze rate limit |
-| `SUSPICIOUS_THRESHOLD` | Suspicious label threshold |
-| `PHISHING_THRESHOLD` | Phishing label threshold |
-| `NEW_DOMAIN_DAYS` | Day threshold for a very new domain |
-| `YOUNG_DOMAIN_DAYS` | Day threshold for a recently registered domain |
-| `NEW_DOMAIN_PENALTY` | Score penalty for very new domains |
-| `YOUNG_DOMAIN_PENALTY` | Score penalty for recently registered domains |
-| `VT_ENABLED` | Enable optional VirusTotal enrichment (`true` or `false`) |
-| `VT_API_KEY` | VirusTotal API key (if `VT_ENABLED=true`) |
+All variables have sensible local defaults. Only `SECRET_KEY` should be changed for production.
 
-## Running tests and checks
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SECRET_KEY` | random | Flask session and CSRF secret |
+| `DATABASE_URL` | sqlite | SQLAlchemy connection string |
+| `ANALYZE_RATE_LIMIT` | 30/hour | Public analyze rate limit |
+| `SUSPICIOUS_THRESHOLD` | 25 | Score >= this = suspicious |
+| `PHISHING_THRESHOLD` | 50 | Score >= this = phishing |
+| `VT_ENABLED` | false | Enable VirusTotal enrichment |
+| `VT_API_KEY` | empty | VirusTotal API key |
+| `SAFEBROWSING_API_KEY` | empty | Google Safe Browsing API key |
+| `URLSCAN_API_KEY` | empty | urlscan.io API key |
+| `ABUSEIPDB_API_KEY` | empty | AbuseIPDB API key |
+
+## Optional enrichment APIs
+
+All external APIs are optional. If a key is not set, that enrichment is silently skipped. The core local analysis always runs.
+
+| API | What it adds | Free tier |
+| --- | --- | --- |
+| VirusTotal | Multi-engine URL reputation | ~4 req/min |
+| Google Safe Browsing | Known unsafe URL list | Non-commercial free |
+| urlscan.io | Live page scan and capture | Free tier available |
+| AbuseIPDB | IP abuse reputation | ~1000 checks/day |
+
+## Running checks
 
 ```bash
-python -m pytest -q
-python -m bandit -q -r app
-python -m pip_audit -r requirements.txt --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln PYSEC-2024-277
 python -m ruff check .
 ```
 
-Or run:
+## License
 
-```bash
-./scripts/security-audit.sh
-```
-
-## Model integration
-
-Point `MODEL_PATH` at a joblib-serialized classifier that exposes `predict_proba`. The app blends heuristic scoring with the model probability when available.
-
-## Security scan note
-
-`pip-audit` is configured to ignore `GHSA-gc5v-m9x4-r6x2` (`requests`) and `PYSEC-2024-277` (`joblib`) because pip-audit currently reports them without a practical drop-in fixed release for this stack. Keep reviewing upstream fixes and remove the ignores once safe versions are available.
-
-## Migrations
-
-The app is wired with Flask-Migrate/Alembic-ready configuration. For a first migration workflow:
-
-```bash
-flask db init
-flask db migrate -m "initial schema"
-flask db upgrade
-```
-
-Do not rely on runtime `db.create_all()` in production; run `flask db upgrade` during deploy/startup.
-
-## Documentation
-
-- `docs/architecture.md`
-- `docs/deployment.md`
-- `docs/security.md`
-- `docs/api.md`
+Internal project.

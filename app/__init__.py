@@ -13,6 +13,12 @@ from .security import configure_logging, configure_security
 def create_app():
     app = Flask(__name__)
     app.config.from_object(BaseConfig)
+
+    vt_enabled = app.config.get("VT_ENABLED", False)
+    vt_key_present = bool(app.config.get("VT_API_KEY"))
+    app.logger.info(
+        f"[STARTUP] VT_ENABLED={vt_enabled} | VT_API_KEY={'set' if vt_key_present else 'missing'}"
+    )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     Path(app.config.get("RESULTS_DIR", "results")).mkdir(parents=True, exist_ok=True)
     db.init_app(app)
