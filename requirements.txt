@@ -8,6 +8,7 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 python-dotenv==1.0.1
 psycopg2-binary==2.9.9
-google-genai==1.14.0
 lxml==5.2.2
 python-whois>=0.9.5
+dnspython>=2.6.1
+pyOpenSSL>=24.2.1

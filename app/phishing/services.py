@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +16,6 @@ from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout, RequestException, SSLError
 from requests.exceptions import Timeout as RequestsTimeout
-from sqlalchemy import func
 from urllib3.util.retry import Retry
 
 from app.extensions import db
@@ -340,7 +337,6 @@ def crawl_website(base_url: str, max_pages: int = 5, timeout: int = 5) -> tuple[
     session = _build_session()
     parsed_base = urlparse(base_url)
     base_domain = parsed_base.hostname or ""
-    base_path = parsed_base.path.rstrip("/") or "/"
     to_visit = [base_url]
     visited: set[str] = set()
     all_text_parts: list[str] = []
@@ -688,6 +684,20 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
             score += bump
             reasons.append(f"VirusTotal: {suspicious} engine(s) detecting URL as suspicious (+{bump})")
 
+    sb_summary = page_signals.get("sb_summary", {})
+    if sb_summary and sb_summary.get("status") == "success" and not sb_summary.get("safe"):
+        score += 20
+        matches = sb_summary.get("matches", [])
+        reasons.append(f"Google Safe Browsing flagged this URL. Threats: {', '.join(matches)} (+20)")
+
+    abuseipdb_summary = page_signals.get("abuseipdb_summary", {})
+    if abuseipdb_summary and abuseipdb_summary.get("status") == "success":
+        confidence = abuseipdb_summary.get("abuseConfidenceScore", 0)
+        if confidence > 0:
+            bump = min(int(confidence / 5), 15)
+            score += bump
+            reasons.append(f"AbuseIPDB flagged IP with {confidence}% confidence (+{bump})")
+
     score = max(0, min(score, 100))
     label = compute_label_from_score(score, config)
 
@@ -695,7 +705,6 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
 
 
 def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) -> AnalysisResult:
-    started_at = time.perf_counter()
     timeout = max(int(config.get("REQUEST_TIMEOUT_SECONDS", 10)), 1)
     retry_count = max(int(config.get("REQUEST_RETRY_COUNT", 1)), 0)
     normalized = normalize_url(raw_url)
@@ -880,6 +889,49 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         except RuntimeError:
             pass
 
+    # SafeBrowsing Integration
+    sb_enabled = bool(config.get("SAFEBROWSING_API_KEY"))
+    if sb_enabled:
+        try:
+            current_app.logger.info("[SB AUDIT] Starting Safe Browsing URL lookup...")
+        except RuntimeError:
+            pass
+        from app.phishing.safebrowsing import get_safebrowsing_report
+        sb_data = get_safebrowsing_report(normalized, config)
+        if sb_data:
+            page_signals["sb_summary"] = sb_data
+            sb_status = sb_data.get("status", "unknown")
+            if sb_status == "success":
+                try:
+                    current_app.logger.info(f"[SB AUDIT] Lookup successful, safe: {sb_data.get('safe')}")
+                except RuntimeError:
+                    pass
+
+    # Urlscan Integration
+    us_enabled = bool(config.get("URLSCAN_API_KEY"))
+    if us_enabled:
+        try:
+            current_app.logger.info("[URLSCAN AUDIT] Starting URLScan submission...")
+        except RuntimeError:
+            pass
+        from app.phishing.urlscan import get_urlscan_report
+        us_data = get_urlscan_report(normalized, config)
+        if us_data:
+            page_signals["us_summary"] = us_data
+
+    # AbuseIPDB Integration
+    ip = features.get("ip_address")
+    abuseipdb_enabled = bool(config.get("ABUSEIPDB_API_KEY")) and ip
+    if abuseipdb_enabled:
+        try:
+            current_app.logger.info("[ABUSEIPDB AUDIT] Starting AbuseIPDB lookup...")
+        except RuntimeError:
+            pass
+        from app.phishing.abuseipdb import get_abuseipdb_report
+        abuseipdb_data = get_abuseipdb_report(ip, config)
+        if abuseipdb_data:
+            page_signals["abuseipdb_summary"] = abuseipdb_data
+
     # Score the analysis
     risk_score, label = score_analysis(features, page_signals, reasons, config)
 
@@ -919,8 +971,6 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         if crawl_text:
             all_page_texts.append(crawl_text)
         reasons.extend(crawl_reasons)
-
-    page_text = "\n\n".join(all_page_texts) if all_page_texts else ""
 
     features_summary = {
         "url_features": {k: v for k, v in features.items() if k != "path_length"},

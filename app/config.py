@@ -61,6 +61,11 @@ class BaseConfig:
     VT_MAX_BUMP_MALICIOUS = int(os.getenv("VT_MAX_BUMP_MALICIOUS", "30"))
     VT_MAX_BUMP_SUSPICIOUS = int(os.getenv("VT_MAX_BUMP_SUSPICIOUS", "10"))
 
+    # Optional Enrichment APIs
+    SAFEBROWSING_API_KEY = os.getenv("SAFEBROWSING_API_KEY", "")
+    URLSCAN_API_KEY = os.getenv("URLSCAN_API_KEY", "")
+    ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY", "")
+
     WHOIS_API_KEY = os.getenv("WHOIS_API_KEY", "")
     RESULTS_DIR = os.getenv("RESULTS_DIR", "results")
     CSP = {

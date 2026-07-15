@@ -8,9 +8,7 @@ from flask_limiter.util import get_remote_address
 db = SQLAlchemy()
 csrf = CSRFProtect()
 
-# Limiter storage: use memory:// for local dev (not production-grade).
-# For production, set REDIS_URL env var (e.g. redis://host:6379/0).
-# Memory storage does not persist across restarts and is not shared across workers.
+# Limiter storage: memory:// for local dev
 storage_uri = os.getenv("REDIS_URL", "memory://")
 limiter = Limiter(
     key_func=get_remote_address,

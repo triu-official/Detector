@@ -10,6 +10,9 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import whois
+import ssl
+import dns.resolver
+import OpenSSL
 
 SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "ow.ly"}
 SUSPICIOUS_KEYWORDS = {
@@ -160,6 +163,58 @@ def _check_brand_in_domain(host_no_tld: str, host: str) -> tuple[float, list[str
     return score, hits, reasons
 
 
+def check_ssl_certificate(host: str) -> tuple[float, list[str]]:
+    reasons = []
+    ssl_issues = 0.0
+
+    if not host:
+        return ssl_issues, reasons
+
+    try:
+        cert = ssl.get_server_certificate((host, 443), timeout=3)
+        x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, cert)
+
+        # Check expiration
+        not_after_bytes = x509.get_notAfter()
+        if not_after_bytes:
+            not_after_str = not_after_bytes.decode('utf-8')
+            expiration_date = datetime.strptime(not_after_str, '%Y%m%d%H%M%SZ').replace(tzinfo=timezone.utc)
+            if expiration_date < datetime.now(timezone.utc):
+                ssl_issues = 1.0
+                reasons.append("SSL certificate is expired")
+
+        # Basic check for Let's Encrypt (often used by phishers for quick certs, but not inherently malicious)
+        issuer_components = x509.get_issuer().get_components()
+        issuer_str = str(issuer_components)
+        if "Let's Encrypt" in issuer_str or "ZeroSSL" in issuer_str:
+             reasons.append("SSL certificate is from a free issuer (common in phishing)")
+
+    except Exception:
+        # Don't add a reason if it's just a timeout/connection issue which is caught elsewhere
+        pass
+
+    return ssl_issues, reasons
+
+def check_dns_records(host: str) -> tuple[float, list[str]]:
+    reasons = []
+    dns_issues = 0.0
+
+    if not host:
+        return dns_issues, reasons
+
+    try:
+        # Check MX records
+        try:
+            dns.resolver.resolve(host, 'MX', lifetime=2.0)
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            dns_issues = 1.0
+            reasons.append("Domain has no MX records (cannot receive email, unusual for legit businesses)")
+
+    except Exception:
+        pass
+
+    return dns_issues, reasons
+
 def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
     parsed = urlparse(url)
     host = parsed.hostname or ""
@@ -174,6 +229,15 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
         reasons.append("Contains IP address instead of domain")
     except ValueError:
         pass
+
+    ip_address = None
+    if not has_ip:
+        try:
+            ip_address = socket.gethostbyname(host)
+        except Exception:
+            pass
+    else:
+        ip_address = host
 
     suspicious_char_count = sum(url.count(ch) for ch in ["@", "-", "%", "="])
     if suspicious_char_count:
@@ -220,6 +284,7 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
         "raw_domain": host,
         "subdomain_count": float(subdomain_count),
         "has_ip": has_ip,
+        "ip_address": ip_address,
         "suspicious_chars": float(suspicious_char_count),
         "keyword_hits": float(len(keyword_matches)),
         "is_shortener": is_shortener,
@@ -227,6 +292,18 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
         "uses_https": uses_https,
         "path_length": float(len(path)),
     }
+
+    # Optional SSL/DNS checks
+    ssl_issues, ssl_reasons = check_ssl_certificate(host)
+    if ssl_reasons:
+        features["ssl_issues"] = ssl_issues
+        reasons.extend(ssl_reasons)
+
+    dns_issues, dns_reasons = check_dns_records(host)
+    if dns_reasons:
+        features["dns_issues"] = dns_issues
+        reasons.extend(dns_reasons)
+
     return features, reasons
 
 
