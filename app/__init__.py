@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template
 
 from .config import BaseConfig
 from .extensions import db, csrf, limiter

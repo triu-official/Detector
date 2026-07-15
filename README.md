@@ -38,24 +38,15 @@ Change these before production use, or set `ADMIN_PASSWORD_HASH` instead.
 | --- | --- |
 | `SECRET_KEY` | Flask session and CSRF secret |
 | `DATABASE_URL` | SQLAlchemy connection string |
-| `REDIS_URL` | Redis cache and Celery broker URL |
-| `ADMIN_USERNAME` | Admin account username |
-| `ADMIN_PASSWORD` | Local/dev admin password |
-| `ADMIN_PASSWORD_HASH` | Preferred production password hash |
-| `MODEL_PATH` | Optional joblib model path |
-| `SENTRY_DSN` | Optional Sentry DSN |
 | `ANALYZE_RATE_LIMIT` | Public analyze rate limit |
-| `ADMIN_RATE_LIMIT` | Admin route rate limit |
-| `REPORTS_RATE_LIMIT` | Public reports/export rate limit |
-| `SAFE_THRESHOLD` | Safe label threshold |
 | `SUSPICIOUS_THRESHOLD` | Suspicious label threshold |
 | `PHISHING_THRESHOLD` | Phishing label threshold |
 | `NEW_DOMAIN_DAYS` | Day threshold for a very new domain |
 | `YOUNG_DOMAIN_DAYS` | Day threshold for a recently registered domain |
 | `NEW_DOMAIN_PENALTY` | Score penalty for very new domains |
 | `YOUNG_DOMAIN_PENALTY` | Score penalty for recently registered domains |
-| `HEURISTIC_BLEND_WEIGHT` | Weight applied to rule-based scoring when ML is enabled |
-| `ML_BLEND_WEIGHT` | Weight applied to model scoring when ML is enabled |
+| `VT_ENABLED` | Enable optional VirusTotal enrichment (`true` or `false`) |
+| `VT_API_KEY` | VirusTotal API key (if `VT_ENABLED=true`) |
 
 ## Running tests and checks
 
@@ -91,12 +82,6 @@ flask db upgrade
 ```
 
 Do not rely on runtime `db.create_all()` in production; run `flask db upgrade` during deploy/startup.
-
-## Async scan workflow
-
-- `POST /api/analyze/async` enqueues a Celery job and returns `job_id`.
-- `GET /api/jobs/<job_id>` returns queued/running/completed/failed status.
-- Frontend polling now uses the async API by default.
 
 ## Documentation
 

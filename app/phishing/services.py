@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +16,6 @@ from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout, RequestException, SSLError
 from requests.exceptions import Timeout as RequestsTimeout
-from sqlalchemy import func
 from urllib3.util.retry import Retry
 
 from app.extensions import db
@@ -340,7 +337,6 @@ def crawl_website(base_url: str, max_pages: int = 5, timeout: int = 5) -> tuple[
     session = _build_session()
     parsed_base = urlparse(base_url)
     base_domain = parsed_base.hostname or ""
-    base_path = parsed_base.path.rstrip("/") or "/"
     to_visit = [base_url]
     visited: set[str] = set()
     all_text_parts: list[str] = []
@@ -695,7 +691,6 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
 
 
 def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) -> AnalysisResult:
-    started_at = time.perf_counter()
     timeout = max(int(config.get("REQUEST_TIMEOUT_SECONDS", 10)), 1)
     retry_count = max(int(config.get("REQUEST_RETRY_COUNT", 1)), 0)
     normalized = normalize_url(raw_url)
@@ -919,8 +914,6 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         if crawl_text:
             all_page_texts.append(crawl_text)
         reasons.extend(crawl_reasons)
-
-    page_text = "\n\n".join(all_page_texts) if all_page_texts else ""
 
     features_summary = {
         "url_features": {k: v for k, v in features.items() if k != "path_length"},
