@@ -121,6 +121,83 @@
 </section>
 {% endif %}
 
+{% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.sb_summary %}
+{% set sb = data.features_summary.page_signals.sb_summary %}
+{% if sb.status == 'success' %}
+<section class="card">
+  <h2>Safe Browsing Enrichment</h2>
+  <div class="key-value">
+    <div><span>Safe</span><span class="{{ 'score-safe' if sb.safe else 'score-phishing' }}">{{ sb.safe }}</span></div>
+    {% if sb.matches %}
+    <div><span>Threats</span><span>{{ sb.matches | join(', ') }}</span></div>
+    {% endif %}
+  </div>
+</section>
+{% elif sb.status == 'rate_limited' %}
+<section class="card">
+  <h2>Safe Browsing Enrichment</h2>
+  <p class="muted">Safe Browsing rate limit reached.</p>
+</section>
+{% elif sb.status == 'error' %}
+<section class="card">
+  <h2>Safe Browsing Enrichment</h2>
+  <p class="muted">Safe Browsing lookup failed: {{ sb.message or 'unknown error' }}</p>
+</section>
+{% endif %}
+{% endif %}
+
+{% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.us_summary %}
+{% set us = data.features_summary.page_signals.us_summary %}
+{% if us.status == 'success' %}
+<section class="card">
+  <h2>Urlscan.io Enrichment</h2>
+  <div class="key-value">
+    <div><span>Scan Result</span><span><a href="{{ us.result_url }}" target="_blank" rel="noopener noreferrer">View Report</a></span></div>
+  </div>
+</section>
+{% elif us.status == 'rate_limited' %}
+<section class="card">
+  <h2>Urlscan.io Enrichment</h2>
+  <p class="muted">urlscan.io rate limit reached.</p>
+</section>
+{% elif us.status == 'error' %}
+<section class="card">
+  <h2>Urlscan.io Enrichment</h2>
+  <p class="muted">urlscan.io lookup failed: {{ us.message or 'unknown error' }}</p>
+</section>
+{% endif %}
+{% endif %}
+
+{% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.abuseipdb_summary %}
+{% set ipdb = data.features_summary.page_signals.abuseipdb_summary %}
+{% if ipdb.status == 'success' %}
+<section class="card">
+  <h2>AbuseIPDB Enrichment</h2>
+  <div class="key-value">
+    <div><span>IP Address</span><span>{{ ipdb.ipAddress }}</span></div>
+    <div><span>Abuse Confidence</span><span class="{{ 'score-phishing' if ipdb.abuseConfidenceScore > 50 else ('score-suspicious' if ipdb.abuseConfidenceScore > 0 else 'score-safe') }}">{{ ipdb.abuseConfidenceScore }}%</span></div>
+    <div><span>ISP</span><span>{{ ipdb.isp }}</span></div>
+    {% if ipdb.domain %}
+    <div><span>Domain</span><span>{{ ipdb.domain }}</span></div>
+    {% endif %}
+    <div><span>Country</span><span>{{ ipdb.countryCode }}</span></div>
+    <div><span>Usage Type</span><span>{{ ipdb.usageType }}</span></div>
+    <div><span>Total Reports</span><span>{{ ipdb.totalReports }}</span></div>
+  </div>
+</section>
+{% elif ipdb.status == 'rate_limited' %}
+<section class="card">
+  <h2>AbuseIPDB Enrichment</h2>
+  <p class="muted">AbuseIPDB rate limit reached.</p>
+</section>
+{% elif ipdb.status == 'error' %}
+<section class="card">
+  <h2>AbuseIPDB Enrichment</h2>
+  <p class="muted">AbuseIPDB lookup failed: {{ ipdb.message or 'unknown error' }}</p>
+</section>
+{% endif %}
+{% endif %}
+
 {% if data.redirect_chain and data.redirect_chain|length > 1 %}
 <section class="card">
   <h2>Redirect Chain</h2>
