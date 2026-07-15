@@ -14,6 +14,58 @@ _last_vt_call_time: float = 0.0
 _VT_MIN_INTERVAL = 15.0
 
 
+def _curate_meta(meta: dict) -> dict:
+    """Extract useful meta tags from VT html_info, discard bloated/irrelevant ones."""
+    if not meta:
+        return {}
+    curated = {}
+    keep_keys = {"description", "keywords", "author", "generator", "viewport",
+                 "og:title", "og:description", "og:type", "og:image",
+                 "twitter:card", "twitter:title", "twitter:description"}
+    for key, val in meta.items():
+        key_lower = key.lower()
+        if key_lower in keep_keys:
+            curated[key] = val
+        elif any(key_lower.startswith(prefix) for prefix in ("og:", "twitter:")):
+            curated[key] = val
+    return curated
+
+
+def _build_verdict_label(vt_summary: dict) -> dict:
+    """Build a richer VT verdict than just 'Clean'/'Flagged'."""
+    stats = vt_summary.get("stats", {})
+    malicious = stats.get("malicious_count", 0)
+    suspicious = stats.get("suspicious_count", 0)
+    categories = vt_summary.get("categories", [])
+    reputation = vt_summary.get("reputation", 0)
+
+    if malicious > 0:
+        detection_verdict = f"{malicious} engine(s) flagged as malicious"
+    elif suspicious > 0:
+        detection_verdict = f"{suspicious} engine(s) flagged as suspicious"
+    else:
+        detection_verdict = "No malicious detections"
+
+    category_context = ""
+    if categories:
+        category_context = f"Classified as: {', '.join(categories[:5])}"
+
+    if reputation < -20:
+        rep_context = f"Negative reputation ({reputation})"
+    elif reputation < 0:
+        rep_context = f"Slightly negative reputation ({reputation})"
+    elif reputation > 50:
+        rep_context = f"Strong positive reputation ({reputation})"
+    else:
+        rep_context = f"Reputation: {reputation}"
+
+    return {
+        "detection_verdict": detection_verdict,
+        "category_context": category_context,
+        "reputation_context": rep_context,
+    }
+
+
 def _vt_request(method: str, url: str, headers: dict, data: dict | None, timeout: int):
     if method == "POST":
         return requests.post(url, headers=headers, data=data, timeout=timeout)
@@ -123,9 +175,24 @@ def get_virustotal_report(url: str, config: dict[str, Any]) -> dict[str, Any] | 
         # Redirection chain
         redirection_chain = attributes.get("redirection_chain", [])
 
-        # Categories
+        # Categories (vendor -> category mapping, deduplicated values)
         categories = attributes.get("categories", {})
         unique_categories = list(set(categories.values()))
+        # Keep vendor-to-category mapping for richer display
+        category_vendors = {k: v for k, v in categories.items()}
+
+        # Serving IP address
+        serving_ip = attributes.get("serving_ip_address")
+
+        # Outgoing / external links (capped to prevent huge payloads)
+        outgoing_links = attributes.get("outgoing_links", [])
+        outgoing_links = outgoing_links[:20]
+
+        # Favicon hashes
+        favicon = attributes.get("favicon", {})
+
+        # JARM TLS fingerprint
+        jarm = attributes.get("jarm")
 
         # Top flagged engines
         analysis_results = attributes.get("last_analysis_results", {})
@@ -203,9 +270,21 @@ def get_virustotal_report(url: str, config: dict[str, Any]) -> dict[str, Any] | 
             "tags": attributes.get("tags", []),
             "html_info": {
                 "title": attributes.get("html_info", {}).get("title"),
-                # We do not store huge meta blobs, maybe just some summary or skip meta
+                "meta": _curate_meta(attributes.get("html_info", {}).get("meta", {})),
             },
+            "serving_ip": serving_ip,
+            "outgoing_links": outgoing_links,
+            "outgoing_links_count": len(outgoing_links),
+            "favicon": favicon or None,
+            "jarm": jarm,
+            "category_vendors": category_vendors,
             "permalink": f"https://www.virustotal.com/gui/url/{url_id}",
+            # Rich verdict for UI (replaces coarse 'Clean'/'Flagged')
+            "verdict": _build_verdict_label({
+                "stats": {"malicious_count": malicious, "suspicious_count": suspicious},
+                "categories": unique_categories,
+                "reputation": attributes.get("reputation", 0),
+            }),
             # Keep flat stats for backward compatibility with existing code during transition,
             # will remove in score_analysis refactor if needed.
             "malicious_count": malicious,

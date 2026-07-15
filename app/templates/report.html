@@ -105,6 +105,17 @@
 {% if vt.status == 'success' %}
 <section class="card">
   <h2>VirusTotal Enrichment</h2>
+
+  {% if vt.verdict %}
+  <div class="key-value" style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border, #ddd);">
+    <div><span>Detection</span><span class="{{ 'score-phishing' if vt.stats.malicious_count > 0 else ('score-suspicious' if vt.stats.suspicious_count > 0 else 'score-safe') }}">{{ vt.verdict.detection_verdict }}</span></div>
+    {% if vt.verdict.category_context %}
+    <div><span>Category</span><span>{{ vt.verdict.category_context }}</span></div>
+    {% endif %}
+    <div><span>Reputation</span><span>{{ vt.verdict.reputation_context }}</span></div>
+  </div>
+  {% endif %}
+
   <div class="key-value">
     <div><span>Malicious</span><span class="score-phishing">{{ vt.stats.malicious_count }} / {{ vt.stats.total_engines }}</span></div>
     <div><span>Suspicious</span><span class="score-suspicious">{{ vt.stats.suspicious_count }} / {{ vt.stats.total_engines }}</span></div>
@@ -114,6 +125,11 @@
     {% if vt.votes %}
     <div><span>Community Votes</span><span>Harmless {{ vt.votes.harmless }} / Malicious {{ vt.votes.malicious }}</span></div>
     {% endif %}
+
+    {% if vt.serving_ip %}
+    <div><span>Serving IP</span><span class="mono">{{ vt.serving_ip }}</span></div>
+    {% endif %}
+
     {% if vt.dates and vt.dates.first_submission_date %}
     <div><span>First Submitted</span><span>{{ vt.dates.first_submission_date }}</span></div>
     {% endif %}
@@ -126,21 +142,97 @@
     {% if vt.final_url %}
     <div><span>Final URL</span><span class="mono">{{ vt.final_url }}</span></div>
     {% endif %}
+
     {% if vt.redirection_chain and vt.redirection_chain|length > 0 %}
-    <div><span>Redirection Chain</span>
+    <div><span>VT Redirect Chain</span>
       <span>
         <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
-          {% for url in vt.redirection_chain %}<li>{{ url }}</li>{% endfor %}
+          {% for url in vt.redirection_chain %}<li class="mono" style="font-size:0.85em;">{{ url }}</li>{% endfor %}
         </ul>
       </span>
     </div>
     {% endif %}
+
     {% if vt.categories and vt.categories|length > 0 %}
     <div><span>Categories</span>
       <span>
         {% for cat in vt.categories %}
         <span class="pill">{{ cat }}</span>
         {% endfor %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if vt.tags and vt.tags|length > 0 %}
+    <div><span>Tags</span>
+      <span>
+        {% for tag in vt.tags[:10] %}
+        <span class="pill" style="font-size: 0.8em;">{{ tag }}</span>
+        {% endfor %}
+        {% if vt.tags|length > 10 %}
+        <span class="muted" style="font-size:0.8em;">+{{ vt.tags|length - 10 }} more</span>
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if vt.html_info and (vt.html_info.title or vt.html_info.meta) %}
+    <div><span>HTML Info</span>
+      <span>
+        {% if vt.html_info.title %}
+        <div><strong>Title:</strong> {{ vt.html_info.title }}</div>
+        {% endif %}
+        {% if vt.html_info.meta %}
+        {% for mk, mv in vt.html_info.meta.items() %}
+        <div style="font-size:0.85em;"><span class="muted">{{ mk }}:</span> {{ mv }}</div>
+        {% endfor %}
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if vt.http_response %}
+    {% set http = vt.http_response %}
+    {% if http.status_code or http.content_length or http.headers %}
+    <div><span>HTTP Response</span>
+      <span>
+        {% if http.status_code %}
+        <div>Status Code: <strong>{{ http.status_code }}</strong></div>
+        {% endif %}
+        {% if http.content_length %}
+        <div>Body Length: {{ http.content_length }} bytes</div>
+        {% endif %}
+        {% if http.headers %}
+        {% for hk, hv in http.headers.items() %}
+        <div style="font-size:0.85em;"><span class="muted">{{ hk }}:</span> {{ hv }}</div>
+        {% endfor %}
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if vt.favicon %}
+    <div><span>Favicon</span>
+      <span>
+        {% if vt.favicon.get('raw_md5') %}<div style="font-size:0.85em;">MD5: <code>{{ vt.favicon.raw_md5 }}</code></div>{% endif %}
+        {% if vt.favicon.get('raw_sha1') %}<div style="font-size:0.85em;">SHA1: <code>{{ vt.favicon.raw_sha1 }}</code></div>{% endif %}
+        {% if vt.favicon.get('raw_sha256') %}<div style="font-size:0.85em;">SHA256: <code>{{ vt.favicon.raw_sha256 }}</code></div>{% endif %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if vt.outgoing_links and vt.outgoing_links|length > 0 %}
+    <div><span>Outbound Links</span>
+      <span>
+        <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+          {% for link in vt.outgoing_links[:8] %}
+          <li class="mono" style="font-size:0.8em; word-break:break-all;">{{ link }}</li>
+          {% endfor %}
+          {% if vt.outgoing_links|length > 8 %}
+          <li class="muted" style="font-size:0.8em;">+{{ vt.outgoing_links|length - 8 }} more (showing {{ vt.outgoing_links_count }} total)</li>
+          {% endif %}
+        </ul>
       </span>
     </div>
     {% endif %}
@@ -158,6 +250,10 @@
         {% endif %}
       </span>
     </div>
+    {% endif %}
+
+    {% if vt.jarm %}
+    <div><span>JARM Fingerprint</span><span><code style="font-size:0.85em;">{{ vt.jarm }}</code></span></div>
     {% endif %}
 
     {% if vt.permalink %}
