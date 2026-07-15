@@ -666,40 +666,157 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         else:
             score += 20
 
+    # Variables for blended confidence
+    vt_signal = "not available"
+    sb_signal = "not available"
+    ipdb_signal = "not available"
+    sources_count = 0
+    clean_sources = 0
+    flagged_sources = 0
+
     # Optional VirusTotal bump using configurable values
     vt_summary = page_signals.get("vt_summary", {})
     if vt_summary and vt_summary.get("status") == "success":
-        malicious = vt_summary.get("malicious_count", 0)
-        suspicious = vt_summary.get("suspicious_count", 0)
+        sources_count += 1
+        stats = vt_summary.get("stats", {})
+        malicious = stats.get("malicious_count", vt_summary.get("malicious_count", 0))
+        suspicious = stats.get("suspicious_count", vt_summary.get("suspicious_count", 0))
+
         vt_bump_per_malicious = config.get("VT_SCORE_BUMP_MALICIOUS", 15)
         vt_bump_per_suspicious = config.get("VT_SCORE_BUMP_SUSPICIOUS", 5)
         vt_max_malicious = config.get("VT_MAX_BUMP_MALICIOUS", 30)
         vt_max_suspicious = config.get("VT_MAX_BUMP_SUSPICIOUS", 10)
+        vt_bump_cat = config.get("VT_SCORE_BUMP_CATEGORY", 8)
+        vt_bump_rep = config.get("VT_SCORE_BUMP_REPUTATION_NEGATIVE", 5)
+
+        total_vt_penalty = 0
+
         if malicious > 0:
             bump = min(malicious * vt_bump_per_malicious, vt_max_malicious)
-            score += bump
+            total_vt_penalty += bump
             reasons.append(f"VirusTotal: {malicious} engine(s) detecting URL as malicious (+{bump})")
         if suspicious > 0:
             bump = min(suspicious * vt_bump_per_suspicious, vt_max_suspicious)
-            score += bump
+            total_vt_penalty += bump
             reasons.append(f"VirusTotal: {suspicious} engine(s) detecting URL as suspicious (+{bump})")
 
+        categories = vt_summary.get("categories", [])
+        negative_keywords = ["phishing", "malware", "scam", "credential theft", "fraud"]
+        if any(any(kw in cat.lower() for kw in negative_keywords) for cat in categories):
+            total_vt_penalty += vt_bump_cat
+            reasons.append(f"VirusTotal: Negative categories detected (+{vt_bump_cat})")
+
+        reputation = vt_summary.get("reputation", 0)
+        if reputation < -10:
+            total_vt_penalty += vt_bump_rep
+            reasons.append(f"VirusTotal: Meaningfully negative reputation score (+{vt_bump_rep})")
+
+        if total_vt_penalty > 0:
+            score += total_vt_penalty
+            vt_signal = "flagged"
+            flagged_sources += 1
+        else:
+            # Check for positive reductions
+            vt_max_reduction = config.get("VT_MAX_POSITIVE_REDUCTION", 8)
+            reduction = 0
+
+            dates = vt_summary.get("dates", {})
+            first_sub = dates.get("first_submission_date")
+            if first_sub:
+                from datetime import datetime, timezone
+                try:
+                    first_sub_dt = datetime.fromisoformat(first_sub)
+                    age_days = (datetime.now(timezone.utc) - first_sub_dt).days
+                    if age_days > 180 and malicious == 0:
+                        red = config.get("VT_SCORE_REDUCTION_OLD_CLEAN", 5)
+                        reduction += red
+                        reasons.append(f"VirusTotal: Domain has a long, clean submission history (-{red})")
+                except Exception:
+                    pass
+
+            votes = vt_summary.get("votes", {})
+            harmless_votes = votes.get("harmless", 0)
+            malicious_votes = votes.get("malicious", 0)
+            if harmless_votes > 10 and malicious_votes == 0 and malicious == 0:
+                red = config.get("VT_SCORE_REDUCTION_HARMLESS_VOTES", 3)
+                reduction += red
+                reasons.append(f"VirusTotal: Strong community harmless votes (-{red})")
+
+            if reduction > 0:
+                reduction = min(reduction, vt_max_reduction)
+                # Ensure we don't wash away strong heuristic signals
+                if score >= config.get("SUSPICIOUS_THRESHOLD", 25):
+                    reasons.append(f"VirusTotal: Positive signals capped to prevent overriding local heuristics")
+                else:
+                    score = max(0, score - reduction)
+
+            vt_signal = "clean"
+            clean_sources += 1
+
     sb_summary = page_signals.get("sb_summary", {})
-    if sb_summary and sb_summary.get("status") == "success" and not sb_summary.get("safe"):
-        score += 20
-        matches = sb_summary.get("matches", [])
-        reasons.append(f"Google Safe Browsing flagged this URL. Threats: {', '.join(matches)} (+20)")
+    if sb_summary and sb_summary.get("status") == "success":
+        sources_count += 1
+        if not sb_summary.get("safe") and not sb_summary.get("no_threats_found"):
+            score += 20
+            threats = sb_summary.get("threat_types", [])
+            reasons.append(f"Google Safe Browsing flagged this URL. Threats: {', '.join(threats)} (+20)")
+            sb_signal = "flagged"
+            flagged_sources += 1
+        else:
+            sb_signal = "clean"
+            clean_sources += 1
 
     abuseipdb_summary = page_signals.get("abuseipdb_summary", {})
     if abuseipdb_summary and abuseipdb_summary.get("status") == "success":
+        sources_count += 1
         confidence = abuseipdb_summary.get("abuseConfidenceScore", 0)
         if confidence > 0:
             bump = min(int(confidence / 5), 15)
             score += bump
             reasons.append(f"AbuseIPDB flagged IP with {confidence}% confidence (+{bump})")
+            if confidence > 25:
+                ipdb_signal = "flagged"
+                flagged_sources += 1
+            else:
+                ipdb_signal = "clean"
+                clean_sources += 1
+        else:
+            ipdb_signal = "clean"
+            clean_sources += 1
 
     score = max(0, min(score, 100))
     label = compute_label_from_score(score, config)
+
+    # Blended confidence evaluation
+    confidence_mode = "local_only" if sources_count == 0 else "local_plus_apis"
+    confidence_level = "low"
+    confidence_reason = "Local heuristics only."
+
+    if sources_count > 0:
+        if label == "safe" and flagged_sources == 0:
+            confidence_level = "high"
+            confidence_reason = f"Local heuristics and {sources_count} external source(s) agree on low risk."
+        elif label != "safe" and flagged_sources > 0:
+            confidence_level = "high"
+            confidence_reason = f"Local heuristics and {flagged_sources} external source(s) confirm elevated risk."
+        elif label == "safe" and flagged_sources > 0:
+            confidence_level = "medium"
+            confidence_reason = f"Local heuristics found no major flags, but {flagged_sources} external source(s) flagged this target."
+        elif label != "safe" and clean_sources > 0:
+            confidence_level = "medium"
+            confidence_reason = f"Local heuristics flagged the target, but external sources lack corroborating reports."
+        else:
+            confidence_level = "medium"
+            confidence_reason = f"Blended analysis from local heuristics and {sources_count} external source(s)."
+
+    page_signals["blended_confidence"] = {
+        "confidence_mode": confidence_mode,
+        "confidence_level": confidence_level,
+        "confidence_reason": confidence_reason,
+        "vt_signal": vt_signal,
+        "sb_signal": sb_signal,
+        "ipdb_signal": ipdb_signal
+    }
 
     return score, label
 
@@ -855,16 +972,48 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             current_app.logger.info("[VT AUDIT] Starting VirusTotal URL lookup...")
         except RuntimeError:
             pass
-        from app.phishing.virustotal import get_virustotal_report
-        vt_data = get_virustotal_report(normalized, config)
+
+        # Check cache first
+        from app.models import Analysis
+        from datetime import datetime, timezone, timedelta
+        vt_cache_hours = config.get("VT_CACHE_HOURS", 12)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=vt_cache_hours)
+
+        cached_analysis = Analysis.query.filter(
+            Analysis.normalized_url == normalized,
+            Analysis.created_at >= cutoff_time
+        ).order_by(Analysis.created_at.desc()).first()
+
+        vt_data = None
+        if cached_analysis and cached_analysis.features_summary:
+            cached_vt = cached_analysis.features_summary.get("page_signals", {}).get("vt_summary")
+            if cached_vt and cached_vt.get("status") == "success":
+                try:
+                    current_app.logger.info("[VT AUDIT] Cache hit! Reusing VT result from database.")
+                except RuntimeError:
+                    pass
+                vt_data = cached_vt
+
+        if not vt_data:
+            try:
+                current_app.logger.info("[VT AUDIT] Cache miss. Fetching from API.")
+            except RuntimeError:
+                pass
+            from app.phishing.virustotal import get_virustotal_report
+            vt_data = get_virustotal_report(normalized, config)
+
         if vt_data:
             page_signals["vt_summary"] = vt_data
             vt_status = vt_data.get("status", "unknown")
             if vt_status == "success":
+                # Ensure backward compat with older stats shape if cached
+                stats = vt_data.get("stats", {})
+                malicious_c = vt_data.get("malicious_count", stats.get("malicious_count", 0))
+                suspicious_c = vt_data.get("suspicious_count", stats.get("suspicious_count", 0))
                 try:
                     current_app.logger.info(
-                        f"[VT AUDIT] Lookup successful: {vt_data.get('malicious_count', 0)} malicious, "
-                        f"{vt_data.get('suspicious_count', 0)} suspicious"
+                        f"[VT AUDIT] Lookup successful: {malicious_c} malicious, "
+                        f"{suspicious_c} suspicious"
                     )
                 except RuntimeError:
                     pass

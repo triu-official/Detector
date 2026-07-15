@@ -42,20 +42,46 @@ def get_abuseipdb_report(ip: str, config: dict[str, Any]) -> dict[str, Any] | No
         resp.raise_for_status()
         data = resp.json().get('data', {})
 
+        score = data.get("abuseConfidenceScore", 0)
+        verdict_band = "clean"
+        if score > 0:
+            if score <= 25:
+                verdict_band = "low confidence of abuse"
+            elif score <= 50:
+                verdict_band = "moderate concern"
+            elif score <= 75:
+                verdict_band = "high concern"
+            else:
+                verdict_band = "very high concern"
+
+        # Capped verbose reports if requested (not requested by default, but let's parse if present)
+        reports = data.get("reports", [])
+        top_reports = []
+        for r in reports[:10]:
+            top_reports.append({
+                "reportedAt": r.get("reportedAt"),
+                "categories": r.get("categories", []),
+                "comment": r.get("comment", "")[:100] + ("..." if len(r.get("comment", "")) > 100 else ""),
+                "reporterCountryCode": r.get("reporterCountryCode")
+            })
+
         return {
             "status": "success",
             "ipAddress": data.get("ipAddress"),
             "isPublic": data.get("isPublic"),
             "ipVersion": data.get("ipVersion"),
             "isWhitelisted": data.get("isWhitelisted"),
-            "abuseConfidenceScore": data.get("abuseConfidenceScore"),
+            "isTor": data.get("isTor", False),
+            "abuseConfidenceScore": score,
+            "verdict_band": verdict_band,
             "countryCode": data.get("countryCode"),
             "usageType": data.get("usageType"),
             "isp": data.get("isp"),
             "domain": data.get("domain"),
             "totalReports": data.get("totalReports"),
             "numDistinctUsers": data.get("numDistinctUsers"),
-            "lastReportedAt": data.get("lastReportedAt")
+            "lastReportedAt": data.get("lastReportedAt"),
+            "top_reports": top_reports
         }
 
     except RequestException as e:

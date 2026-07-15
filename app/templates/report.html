@@ -21,6 +21,27 @@
     </div>
   </article>
 
+  {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
+  {% set conf = data.features_summary.page_signals.blended_confidence %}
+  <article class="card">
+    <h2>Combined Verdict</h2>
+    <div class="key-value">
+      <div><span>Local Score</span><span class="score-{{ data.label }}">{{ data.risk_score }}/100 — {{ data.label }}</span></div>
+      {% if conf.vt_signal != "not available" %}
+      <div><span>VirusTotal</span><span class="{{ 'score-phishing' if conf.vt_signal == 'flagged' else 'score-safe' }}">{{ conf.vt_signal | title }}</span></div>
+      {% endif %}
+      {% if conf.sb_signal != "not available" %}
+      <div><span>Safe Browsing</span><span class="{{ 'score-phishing' if conf.sb_signal == 'flagged' else 'score-safe' }}">{{ conf.sb_signal | title }}</span></div>
+      {% endif %}
+      {% if conf.ipdb_signal != "not available" %}
+      <div><span>AbuseIPDB</span><span class="{{ 'score-phishing' if conf.ipdb_signal == 'flagged' else 'score-safe' }}">{{ conf.ipdb_signal | title }}</span></div>
+      {% endif %}
+      <div><span>Confidence</span><span>{{ conf.confidence_level | title }} — {{ conf.confidence_reason }}</span></div>
+    </div>
+  </article>
+  {% endif %}
+
+
   {% if data.features_summary and data.features_summary.domain_info %}
   <article class="card">
     <h2>Domain Intelligence</h2>
@@ -85,12 +106,60 @@
 <section class="card">
   <h2>VirusTotal Enrichment</h2>
   <div class="key-value">
-    <div><span>Malicious</span><span class="score-phishing">{{ vt.malicious_count }}</span></div>
-    <div><span>Suspicious</span><span class="score-suspicious">{{ vt.suspicious_count }}</span></div>
-    <div><span>Harmless / Undetected</span><span class="score-safe">{{ vt.harmless_count }} / {{ vt.undetected_count }}</span></div>
-    {% if vt.total_engines %}
-    <div><span>Engines Scanned</span><span>{{ vt.total_engines }}</span></div>
+    <div><span>Malicious</span><span class="score-phishing">{{ vt.stats.malicious_count }} / {{ vt.stats.total_engines }}</span></div>
+    <div><span>Suspicious</span><span class="score-suspicious">{{ vt.stats.suspicious_count }} / {{ vt.stats.total_engines }}</span></div>
+    <div><span>Harmless</span><span class="score-safe">{{ vt.stats.harmless_count }}</span></div>
+    <div><span>Undetected</span><span class="score-safe">{{ vt.stats.undetected_count }}</span></div>
+    <div><span>Reputation Score</span><span>{{ vt.reputation }}</span></div>
+    {% if vt.votes %}
+    <div><span>Community Votes</span><span>Harmless {{ vt.votes.harmless }} / Malicious {{ vt.votes.malicious }}</span></div>
     {% endif %}
+    {% if vt.dates and vt.dates.first_submission_date %}
+    <div><span>First Submitted</span><span>{{ vt.dates.first_submission_date }}</span></div>
+    {% endif %}
+    {% if vt.dates and vt.dates.last_submission_date %}
+    <div><span>Last Submitted</span><span>{{ vt.dates.last_submission_date }}</span></div>
+    {% endif %}
+    {% if vt.dates and vt.dates.last_analysis_date %}
+    <div><span>Last Analysis</span><span>{{ vt.dates.last_analysis_date }}</span></div>
+    {% endif %}
+    {% if vt.final_url %}
+    <div><span>Final URL</span><span class="mono">{{ vt.final_url }}</span></div>
+    {% endif %}
+    {% if vt.redirection_chain and vt.redirection_chain|length > 0 %}
+    <div><span>Redirection Chain</span>
+      <span>
+        <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+          {% for url in vt.redirection_chain %}<li>{{ url }}</li>{% endfor %}
+        </ul>
+      </span>
+    </div>
+    {% endif %}
+    {% if vt.categories and vt.categories|length > 0 %}
+    <div><span>Categories</span>
+      <span>
+        {% for cat in vt.categories %}
+        <span class="pill">{{ cat }}</span>
+        {% endfor %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if vt.top_engine_hits and vt.top_engine_hits|length > 0 %}
+    <div><span>Top Flagged Engines</span>
+      <span>
+        <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+          {% for engine in vt.top_engine_hits %}
+          <li><strong>{{ engine.engine_name }}</strong> — {{ engine.category }} — {{ engine.result }}</li>
+          {% endfor %}
+        </ul>
+        {% if vt.additional_flagged_engines and vt.additional_flagged_engines > 0 %}
+        <small class="muted" style="display:block; margin-top:0.5rem;">Additional flagged engines not shown: {{ vt.additional_flagged_engines }}</small>
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+
     {% if vt.permalink %}
     <div><span>Report</span><span><a href="{{ vt.permalink }}" target="_blank" rel="noopener noreferrer">View on VirusTotal</a></span></div>
     {% endif %}
@@ -127,9 +196,42 @@
 <section class="card">
   <h2>Safe Browsing Enrichment</h2>
   <div class="key-value">
-    <div><span>Safe</span><span class="{{ 'score-safe' if sb.safe else 'score-phishing' }}">{{ sb.safe }}</span></div>
-    {% if sb.matches %}
-    <div><span>Threats</span><span>{{ sb.matches | join(', ') }}</span></div>
+    <div><span>Threats Found</span><span class="{{ 'score-safe' if sb.no_threats_found else 'score-phishing' }}">{{ 'No' if sb.no_threats_found else 'Yes' }}</span></div>
+
+    {% if sb.no_threats_found %}
+    <div><span>Result</span><span class="muted">No matches found on Google Safe Browsing threat lists.</span></div>
+    {% else %}
+      {% if sb.threat_types %}
+      <div><span>Threat Type(s)</span>
+        <span>
+          <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+            {% for t in sb.threat_types %}<li>{{ t }}</li>{% endfor %}
+          </ul>
+        </span>
+      </div>
+      {% endif %}
+
+      {% if sb.platforms_flagged %}
+      <div><span>Platform(s) Affected</span>
+        <span>
+          <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+            {% for p in sb.platforms_flagged %}<li>{{ p }}</li>{% endfor %}
+          </ul>
+        </span>
+      </div>
+      {% endif %}
+
+      {% if sb.matches and sb.matches|length > 0 %}
+      <div><span>Matched Entry Details</span>
+        <span>
+          <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+            {% for m in sb.matches %}
+            <li>Entry Type: {{ m.threatEntryType }} | Matched URL: <span class="mono">{{ m.url }}</span></li>
+            {% endfor %}
+          </ul>
+        </span>
+      </div>
+      {% endif %}
     {% endif %}
   </div>
 </section>
@@ -174,15 +276,27 @@
 <section class="card">
   <h2>AbuseIPDB Enrichment</h2>
   <div class="key-value">
-    <div><span>IP Address</span><span>{{ ipdb.ipAddress }}</span></div>
-    <div><span>Abuse Confidence</span><span class="{{ 'score-phishing' if ipdb.abuseConfidenceScore > 50 else ('score-suspicious' if ipdb.abuseConfidenceScore > 0 else 'score-safe') }}">{{ ipdb.abuseConfidenceScore }}%</span></div>
-    <div><span>ISP</span><span>{{ ipdb.isp }}</span></div>
-    {% if ipdb.domain %}
-    <div><span>Domain</span><span>{{ ipdb.domain }}</span></div>
-    {% endif %}
-    <div><span>Country</span><span>{{ ipdb.countryCode }}</span></div>
-    <div><span>Usage Type</span><span>{{ ipdb.usageType }}</span></div>
+    <div><span>Resolved IP</span><span>{{ ipdb.ipAddress }}</span></div>
+    <div><span>Abuse Confidence Score</span><span class="{{ 'score-phishing' if ipdb.abuseConfidenceScore > 50 else ('score-suspicious' if ipdb.abuseConfidenceScore > 0 else 'score-safe') }}">{{ ipdb.abuseConfidenceScore }}% ({{ ipdb.verdict_band }})</span></div>
     <div><span>Total Reports</span><span>{{ ipdb.totalReports }}</span></div>
+    <div><span>Distinct Reporters</span><span>{{ ipdb.numDistinctUsers }}</span></div>
+    <div><span>Last Reported</span><span>{{ ipdb.lastReportedAt or 'Never' }}</span></div>
+    <div><span>ISP</span><span>{{ ipdb.isp }}</span></div>
+    <div><span>Usage Type</span><span>{{ ipdb.usageType }}</span></div>
+    <div><span>Country</span><span>{{ ipdb.countryCode }}</span></div>
+    <div><span>Tor Exit Node</span><span>{{ 'Yes' if ipdb.isTor else 'No' }}</span></div>
+
+    {% if ipdb.top_reports and ipdb.top_reports|length > 0 %}
+    <div><span>Top Recent Reports</span>
+      <span>
+        <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+          {% for r in ipdb.top_reports %}
+          <li><strong>{{ r.reportedAt }}</strong> — {{ r.categories|join(', ') }} — {{ r.comment }}</li>
+          {% endfor %}
+        </ul>
+      </span>
+    </div>
+    {% endif %}
   </div>
 </section>
 {% elif ipdb.status == 'rate_limited' %}
