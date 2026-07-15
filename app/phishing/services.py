@@ -1002,6 +1002,11 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             from app.phishing.virustotal import get_virustotal_report
             vt_data = get_virustotal_report(normalized, config)
 
+        # Normalize VT data so old cached results match the current schema
+        if vt_data and vt_data.get("status") == "success":
+            from app.phishing.virustotal import normalize_vt_summary
+            vt_data = normalize_vt_summary(vt_data)
+
         if vt_data:
             page_signals["vt_summary"] = vt_data
             vt_status = vt_data.get("status", "unknown")

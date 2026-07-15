@@ -31,6 +31,108 @@ def _curate_meta(meta: dict) -> dict:
     return curated
 
 
+def normalize_vt_summary(vt: dict) -> dict:
+    """Normalize a VT summary dict so it always has the current schema.
+
+    Old cached VT data stored in the DB may lack nested keys like `stats`
+    or the newer fields (verdict, serving_ip, etc.). This function
+    backfills them from flat backward-compat keys so the template
+    always gets a consistent structure.
+    """
+    if not vt or vt.get("status") != "success":
+        return vt
+
+    # Ensure nested `stats` exists (old code always had it, but guard anyway)
+    if "stats" not in vt or not isinstance(vt.get("stats"), dict):
+        malicious = vt.get("malicious_count", 0)
+        suspicious = vt.get("suspicious_count", 0)
+        harmless = vt.get("harmless_count", 0)
+        undetected = vt.get("undetected_count", 0)
+        timeout_count = vt.get("timeout_count", 0)
+        total = malicious + suspicious + harmless + undetected + timeout_count
+        vt["stats"] = {
+            "malicious_count": malicious,
+            "suspicious_count": suspicious,
+            "harmless_count": harmless,
+            "undetected_count": undetected,
+            "timeout_count": timeout_count,
+            "total_engines": total,
+        }
+
+    # Backfill flat keys from nested stats for backward compat
+    stats = vt["stats"]
+    if "malicious_count" not in vt:
+        vt["malicious_count"] = stats.get("malicious_count", 0)
+    if "suspicious_count" not in vt:
+        vt["suspicious_count"] = stats.get("suspicious_count", 0)
+
+    # Ensure dates dict
+    if "dates" not in vt:
+        vt["dates"] = {}
+
+    # Ensure http_response dict
+    if "http_response" not in vt:
+        vt["http_response"] = {}
+
+    # Ensure html_info dict with title
+    if "html_info" not in vt:
+        vt["html_info"] = {}
+    if "title" not in vt["html_info"]:
+        vt["html_info"]["title"] = None
+    if "meta" not in vt["html_info"]:
+        vt["html_info"]["meta"] = {}
+
+    # Ensure categories is a list
+    if "categories" not in vt:
+        vt["categories"] = []
+    elif isinstance(vt["categories"], dict):
+        vt["categories"] = list(set(vt["categories"].values()))
+
+    # Ensure tags is a list
+    if "tags" not in vt:
+        vt["tags"] = []
+
+    # Ensure top_engine_hits is a list
+    if "top_engine_hits" not in vt:
+        vt["top_engine_hits"] = []
+
+    # Ensure votes dict
+    if "votes" not in vt:
+        vt["votes"] = {"harmless": 0, "malicious": 0}
+
+    # Ensure redirection_chain is a list
+    if "redirection_chain" not in vt:
+        vt["redirection_chain"] = []
+
+    # Backfill new fields with safe defaults
+    for field, default in (
+        ("serving_ip", None),
+        ("outgoing_links", []),
+        ("outgoing_links_count", 0),
+        ("favicon", None),
+        ("jarm", None),
+        ("category_vendors", {}),
+        ("final_url", None),
+        ("permalink", ""),
+    ):
+        if field not in vt:
+            vt[field] = default
+
+    # Build verdict if missing (new field)
+    if "verdict" not in vt:
+        vt["verdict"] = _build_verdict_label(vt)
+
+    # Ensure additional_flagged_engines exists
+    if "additional_flagged_engines" not in vt:
+        vt["additional_flagged_engines"] = 0
+
+    # Ensure reputation exists
+    if "reputation" not in vt:
+        vt["reputation"] = 0
+
+    return vt
+
+
 def _build_verdict_label(vt_summary: dict) -> dict:
     """Build a richer VT verdict than just 'Clean'/'Flagged'."""
     stats = vt_summary.get("stats", {})

@@ -63,6 +63,13 @@ def report_detail(analysis_id):
     if not analysis:
         return render_template("errors/404.html", page_title="Not found"), 404
     data = serialize_analysis(analysis)
+    # Normalize VT summary from DB so old cached data matches current schema
+    vt = (data.get("features_summary", {})
+               .get("page_signals", {})
+               .get("vt_summary"))
+    if vt and vt.get("status") == "success":
+        from app.phishing.virustotal import normalize_vt_summary
+        data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
     return render_template("report.html", data=data, page_title=f"Report #{analysis_id}")
 
 
@@ -72,6 +79,12 @@ def api_report(analysis_id):
     if not analysis:
         return jsonify({"error": "not found"}), 404
     data = serialize_analysis(analysis)
+    vt = (data.get("features_summary", {})
+               .get("page_signals", {})
+               .get("vt_summary"))
+    if vt and vt.get("status") == "success":
+        from app.phishing.virustotal import normalize_vt_summary
+        data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
     return jsonify(data)
 
 
