@@ -108,18 +108,108 @@ def get_virustotal_report(url: str, config: dict[str, Any]) -> dict[str, Any] | 
         suspicious = stats.get("suspicious", 0)
         undetected = stats.get("undetected", 0)
         harmless = stats.get("harmless", 0)
-        total = malicious + suspicious + harmless + undetected
+        timeout_count = stats.get("timeout", 0)
+        total = malicious + suspicious + harmless + undetected + timeout_count
+
+        total_votes = attributes.get("total_votes", {})
+
+        # Format dates
+        def _ts_to_iso(ts):
+            from datetime import datetime, timezone
+            if not ts: return None
+            try: return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+            except Exception: return None
+
+        # Redirection chain
+        redirection_chain = attributes.get("redirection_chain", [])
+
+        # Categories
+        categories = attributes.get("categories", {})
+        unique_categories = list(set(categories.values()))
+
+        # Top flagged engines
+        analysis_results = attributes.get("last_analysis_results", {})
+        flagged_engines = []
+        for engine_name, result in analysis_results.items():
+            category = result.get("category", "")
+            if category in ("malicious", "suspicious"):
+                flagged_engines.append({
+                    "engine_name": engine_name,
+                    "category": category,
+                    "result": result.get("result", "")
+                })
+
+        # Sort: malicious first, suspicious second, then alphabetical
+        def sort_engine(e):
+            cat_order = 0 if e["category"] == "malicious" else 1
+            return (cat_order, e["engine_name"].lower())
+
+        flagged_engines.sort(key=sort_engine)
+
+        # Deduplicate by engine_name
+        seen_engines = set()
+        dedup_engines = []
+        for e in flagged_engines:
+            if e["engine_name"] not in seen_engines:
+                seen_engines.add(e["engine_name"])
+                dedup_engines.append(e)
+
+        top_engines = dedup_engines[:15]
+        additional_engines = max(0, len(dedup_engines) - 15)
+
+        # HTTP response metadata
+        headers = attributes.get("last_http_response_headers", {})
+        curated_headers = {}
+        for key in ["server", "content-type", "x-powered-by", "set-cookie", "via"]:
+            for hk, hv in headers.items():
+                if hk.lower() == key:
+                    if key == "set-cookie":
+                        curated_headers[hk] = "present (redacted)" # Don't dump raw cookies
+                    else:
+                        curated_headers[hk] = hv
+                    break
 
         summary = {
             "status": "success",
+            "stats": {
+                "malicious_count": malicious,
+                "suspicious_count": suspicious,
+                "harmless_count": harmless,
+                "undetected_count": undetected,
+                "timeout_count": timeout_count,
+                "total_engines": total,
+            },
+            "reputation": attributes.get("reputation", 0),
+            "votes": {
+                "harmless": total_votes.get("harmless", 0),
+                "malicious": total_votes.get("malicious", 0)
+            },
+            "categories": unique_categories,
+            "dates": {
+                "first_submission_date": _ts_to_iso(attributes.get("first_submission_date")),
+                "last_submission_date": _ts_to_iso(attributes.get("last_submission_date")),
+                "last_analysis_date": _ts_to_iso(attributes.get("last_analysis_date")),
+            },
+            "final_url": attributes.get("last_final_url"),
+            "redirection_chain": redirection_chain[:10], # cap just in case
+            "http_response": {
+                "status_code": attributes.get("last_http_response_code"),
+                "content_length": attributes.get("last_http_response_content_length"),
+                "content_sha256": attributes.get("last_http_response_content_sha256"),
+                "headers": curated_headers
+            },
+            "top_engine_hits": top_engines,
+            "additional_flagged_engines": additional_engines,
+            "tags": attributes.get("tags", []),
+            "html_info": {
+                "title": attributes.get("html_info", {}).get("title"),
+                # We do not store huge meta blobs, maybe just some summary or skip meta
+            },
+            "permalink": f"https://www.virustotal.com/gui/url/{url_id}",
+            # Keep flat stats for backward compatibility with existing code during transition,
+            # will remove in score_analysis refactor if needed.
             "malicious_count": malicious,
             "suspicious_count": suspicious,
-            "harmless_count": harmless,
-            "undetected_count": undetected,
-            "total_engines": total,
-            "last_analysis_date": attributes.get("last_analysis_date"),
-            "reputation": attributes.get("reputation", 0),
-            "permalink": f"https://www.virustotal.com/gui/url/{url_id}",
         }
 
         logger.info(

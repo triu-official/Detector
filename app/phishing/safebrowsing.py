@@ -51,13 +51,34 @@ def get_safebrowsing_report(url: str, config: dict[str, Any]) -> dict[str, Any] 
         matches = data.get("matches", [])
 
         if not matches:
-            return {"status": "success", "safe": True, "matches": []}
+            return {
+                "status": "success",
+                "safe": True,
+                "no_threats_found": True,
+                "matches": []
+            }
 
-        threat_types = [match.get("threatType") for match in matches]
+        threat_types = list(set([match.get("threatType") for match in matches if match.get("threatType")]))
+        platform_types = list(set([match.get("platformType") for match in matches if match.get("platformType")]))
+
+        extracted_matches = []
+        for match in matches:
+            extracted_matches.append({
+                "threatType": match.get("threatType"),
+                "platformType": match.get("platformType"),
+                "threatEntryType": match.get("threatEntryType"),
+                "cacheDuration": match.get("cacheDuration"),
+                "url": match.get("threat", {}).get("url"),
+                "metadata": match.get("threatEntryMetadata", {}).get("entries", [])
+            })
+
         return {
             "status": "success",
             "safe": False,
-            "matches": threat_types
+            "no_threats_found": False,
+            "threat_types": threat_types,
+            "platforms_flagged": platform_types,
+            "matches": extracted_matches
         }
 
     except RequestException as e:
