@@ -1017,6 +1017,9 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
         "binary_response": 0.0,
     }
 
+    # Initialize response to avoid UnboundLocalError if fetch fails
+    response = None
+
     # Fetch page and do deep content inspection
     try:
         try:
