@@ -858,8 +858,25 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
             ip_stats = ip_report.get("last_analysis_stats", {})
             ip_malicious = ip_stats.get("malicious", 0)
             if ip_malicious > 0:
-                total_vt_penalty += 15
-                contributing_factors.append(f"VirusTotal: Host IP has {ip_malicious} malicious engine flag(s) (+15)")
+                # Skip IP penalty for known shared hosting platforms
+                shared_hosting_indicators = [
+                    "vercel", "netlify", "github", "cloudflare", "amazon",
+                    "google cloud", "microsoft azure", "heroku", "render",
+                    "railway", "fly.io", "digitalocean"
+                ]
+                ip_as_owner = (ip_report.get("as_owner") or "").lower()
+                ip_network = (ip_report.get("network") or "").lower()
+                is_shared_hosting = any(
+                    indicator in ip_as_owner or indicator in ip_network
+                    for indicator in shared_hosting_indicators
+                )
+                if not is_shared_hosting:
+                    total_vt_penalty += 15
+                    contributing_factors.append(f"VirusTotal: Host IP has {ip_malicious} malicious engine flag(s) (+15)")
+                else:
+                    contributing_factors.append(
+                        f"VirusTotal: Host IP has {ip_malicious} flag(s) but is on shared hosting ({ip_as_owner or 'unknown'}) — skipped"
+                    )
 
         # Cap total VT penalty
         external_risk_score += min(total_vt_penalty, 40)

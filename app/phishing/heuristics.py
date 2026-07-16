@@ -17,7 +17,8 @@ import OpenSSL
 SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "ow.ly"}
 SUSPICIOUS_KEYWORDS = {
     "login", "verify", "secure", "bank", "update", "confirm", "account",
-    "password", "paypal", "signin", "wallet", "auth"
+    "password", "paypal", "signin", "wallet", "auth",
+    "bonus", "free", "onlinegames", "betting"
 }
 PHISHING_TLDS = {".xyz", ".top", ".club", ".info", ".work", ".click", ".pw", ".gq", ".tk"}
 
@@ -153,12 +154,11 @@ def _check_brand_in_domain(host_no_tld: str, host: str) -> tuple[float, list[str
             score = 1.0
 
     for brand in TOP_BRANDS:
-        for part in host.split("."):
-            dist = levenshtein_distance(part, brand)
-            if 0 < dist <= 2:
-                reasons.append(f"Domain is close to brand '{brand}' (edit distance {dist})")
-                score = max(score, 1.0)
-                break
+        dist = levenshtein_distance(host_no_tld, brand)
+        if 0 < dist <= 2:
+            reasons.append(f"Domain is close to brand '{brand}' (edit distance {dist})")
+            score = max(score, 1.0)
+            break
 
     return score, hits, reasons
 
@@ -239,7 +239,7 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
     else:
         ip_address = host
 
-    suspicious_char_count = sum(url.count(ch) for ch in ["@", "-", "%", "="])
+    suspicious_char_count = sum(url.count(ch) for ch in ["@", "%", "="])
     if suspicious_char_count:
         reasons.append(f"Contains suspicious characters ({suspicious_char_count})")
 
@@ -268,12 +268,9 @@ def extract_url_features(url: str) -> tuple[dict[str, float], list[str]]:
 
     is_typosquatting = 0.0
     for brand in TOP_BRANDS:
-        for part in host.split('.'):
-            dist = levenshtein_distance(part, brand)
-            if 0 < dist <= 2:
-                is_typosquatting = 1.0
-                break
-        if is_typosquatting:
+        dist = levenshtein_distance(host_no_tld, brand)
+        if 0 < dist <= 2:
+            is_typosquatting = 1.0
             break
 
     features = {
