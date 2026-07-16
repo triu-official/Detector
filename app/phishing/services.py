@@ -521,9 +521,24 @@ def deep_content_inspection(response: Response, final_url: str) -> tuple[dict[st
         reasons.append("Missing important meta tags (description/keywords)")
 
     # Zero-Connection Content Similarity Check
-    suspicious_words = ['login', 'verify', 'password', 'security', 'suspended', 'banking', 'wallet', 'account']
+    # Use phishing-specific phrases rather than generic words to reduce false positives
+    # on legitimate developer portfolios, blogs, and documentation sites.
+    suspicious_words = [
+        'verify your identity', 'enter your password', 'confirm your account',
+        'restore your account', 'secure your account', 'update your billing',
+        'suspended account', 'unauthorized access', 'verify your payment',
+        'banking credentials', 'confirm your identity', 'login credentials',
+        'wallet address', 'social security', 'credit card number',
+    ]
     page_text = text
     found_words = [word for word in suspicious_words if word in page_text]
+
+    # Fallback: also check individual high-signal words, but require more of them
+    individual_words = ['login', 'verify', 'password', 'security', 'suspended', 'banking', 'wallet', 'account']
+    found_individual = [word for word in individual_words if word in page_text]
+    # Only use individual words if the phrase check found nothing and the individual set is very dense
+    if not found_words and len(found_individual) >= 5:
+        found_words = found_individual
 
     parsed_final = urlparse(final_url)
     domain_parts = parsed_final.netloc.split('.')
@@ -533,7 +548,7 @@ def deep_content_inspection(response: Response, final_url: str) -> tuple[dict[st
             is_domain_mismatched = False
             break
 
-    if len(found_words) >= 3 and is_domain_mismatched:
+    if len(found_words) >= 5 and is_domain_mismatched:
         signals["content_domain_mismatch"] = 1.0
         reasons.append(f"Page uses multiple high-urgency keywords ({', '.join(found_words)}) but domain is mismatched")
 
@@ -651,8 +666,26 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
             contributing_factors.append("Excessive scripts from known ad-networks")
             
         if page_signals.get("content_domain_mismatch", 0):
-            local_risk_score += 20
-            contributing_factors.append("Obvious mismatch between content brand keywords and domain")
+            # Domain maturity exemption: skip penalty for old domains with clean VT history
+            vt_clean = False
+            vt_summary = page_signals.get("vt_summary", {})
+            if vt_summary and vt_summary.get("status") == "success":
+                domain_report = vt_summary.get("domain_report") or {}
+                if isinstance(domain_report, dict):
+                    stats = domain_report.get("stats", {})
+                    malicious = stats.get("malicious", 0)
+                    suspicious = stats.get("suspicious", 0)
+                    if malicious == 0 and suspicious == 0:
+                        vt_clean = True
+
+            domain_age = features.get("domain_age_days", -1)
+            if domain_age > 365 and vt_clean:
+                contributing_factors.append(
+                    f"Content-domain mismatch ignored: domain is mature ({domain_age}d) with clean VT history"
+                )
+            else:
+                local_risk_score += 12
+                contributing_factors.append("Obvious mismatch between content brand keywords and domain")
 
     # Bot / unreachability logic
     if bot_blocked:
