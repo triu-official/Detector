@@ -322,8 +322,16 @@ def get_domain_intelligence(
     }
     reasons: list[str] = []
 
+    whois_available = False
+    verdict = "unknown"
+    severity = "low"
+    confidence = "low"
+    reason = "WHOIS lookup unavailable (no data returned)"
+
     try:
         w = whois.whois(host)
+        whois_available = True
+        confidence = "high"
 
         creation = w.creation_date
         if isinstance(creation, list):
@@ -357,17 +365,36 @@ def get_domain_intelligence(
             if age_days < age_30:
                 reasons.append(f"Domain registered less than {age_30} days ago (Extremely high risk factor)")
                 info["domain_age_bucket"] = "< 30 days"
+                verdict = "suspicious"
+                severity = "high"
+                reason = f"Domain is extremely young ({age_days} days old)."
             elif age_days < age_90:
                 reasons.append(f"Domain registered less than {age_90} days ago (Very high risk factor)")
                 info["domain_age_bucket"] = "< 90 days"
+                verdict = "suspicious"
+                severity = "medium"
+                reason = f"Domain is very young ({age_days} days old)."
             elif age_days < age_180:
                 reasons.append(f"Domain registered less than {age_180} days ago (High risk factor)")
                 info["domain_age_bucket"] = "< 180 days"
+                verdict = "suspicious"
+                severity = "medium"
+                reason = f"Domain is relatively young ({age_days} days old)."
             elif age_days < age_365:
                 reasons.append(f"Domain registered less than {age_365} days ago (Moderate risk factor)")
                 info["domain_age_bucket"] = "< 365 days"
+                verdict = "suspicious"
+                severity = "low"
+                reason = f"Domain is moderately young ({age_days} days old)."
             else:
                 info["domain_age_bucket"] = ">= 365 days"
+                verdict = "clean"
+                severity = "low"
+                reason = f"Domain is well-established ({age_days} days old)."
+        else:
+            verdict = "unknown"
+            severity = "low"
+            reason = "WHOIS record exists but creation date is missing"
 
         if w.registrar:
             info["registrar"] = str(w.registrar)
@@ -395,7 +422,20 @@ def get_domain_intelligence(
         if ns:
             info["name_servers"] = [str(n).lower() for n in ns]
 
-    except Exception:
+    except Exception as e:
         reasons.append("WHOIS lookup unavailable (no data returned)")
+        reason = f"WHOIS lookup failed: {e}"
+
+    info["domain_trust"] = {
+        "whois_available": whois_available,
+        "verdict": verdict,
+        "severity": severity,
+        "confidence": confidence,
+        "reason": reason,
+        "age_days": info.get("domain_age_days", -1),
+        "age_bucket": info.get("domain_age_bucket", "unknown"),
+        "registrar": info.get("registrar", "unknown"),
+        "name_servers": info.get("name_servers", [])
+    }
 
     return info, reasons

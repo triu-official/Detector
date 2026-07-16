@@ -21,7 +21,44 @@
     </div>
   </article>
 
-  {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
+  {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment %}
+  {% set fusion = data.features_summary.page_signals.fusion_assessment %}
+  <article class="card">
+    <h2>Combined Verdict (Fusion Model)</h2>
+    <div class="key-value">
+      <div><span>Local Heuristic Risk</span><span>{{ fusion.local_risk_score }}/100</span></div>
+      <div><span>Domain Structural Risk</span><span>+{{ fusion.domain_risk_score }}</span></div>
+      <div><span>External Threat Feed Risk</span><span>+{{ fusion.external_risk_score }}</span></div>
+      <div><span>Positive Trust Offset</span><span class="score-safe">-{{ fusion.positive_trust_offset }}</span></div>
+      <div><span>Final Unified Score</span><span class="score-{{ fusion.final_label }}">{{ fusion.final_risk_score }}/100 — {{ fusion.final_label | upper }}</span></div>
+      <div><span>Confidence Mode</span><span>{{ fusion.confidence_mode | replace('_', ' ') | title }}</span></div>
+      <div><span>Confidence Level</span><span>{{ fusion.confidence_level | title }}</span></div>
+      <div><span>Confidence Reason</span><span>{{ fusion.confidence_reason }}</span></div>
+    </div>
+    
+    {% if fusion.contributing_factors %}
+    <div style="margin-top: 1rem;">
+      <strong>Contributing Risk Factors:</strong>
+      <ul class="bullet-list" style="margin-top: 0.5rem; font-size: 0.9em;">
+        {% for f in fusion.contributing_factors %}
+        <li>{{ f }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    
+    {% if fusion.mitigating_factors %}
+    <div style="margin-top: 1rem;">
+      <strong>Mitigating Trust Factors:</strong>
+      <ul class="bullet-list" style="margin-top: 0.5rem; font-size: 0.9em; color: var(--success, green);">
+        {% for m in fusion.mitigating_factors %}
+        <li>{{ m }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </article>
+  {% elif data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
   {% set conf = data.features_summary.page_signals.blended_confidence %}
   <article class="card">
     <h2>Combined Verdict</h2>
@@ -47,6 +84,10 @@
     <h2>Domain Intelligence</h2>
     <div class="key-value">
       {% set dinfo = data.features_summary.domain_info %}
+      {% if dinfo.domain_trust %}
+      <div><span>Domain Trust Verdict</span><span class="{{ 'score-phishing' if dinfo.domain_trust.verdict == 'suspicious' else 'score-safe' }}">{{ dinfo.domain_trust.verdict | title }} ({{ dinfo.domain_trust.severity | title }} Severity)</span></div>
+      <div><span>Trust Reason</span><span>{{ dinfo.domain_trust.reason }}</span></div>
+      {% endif %}
       {% if dinfo.creation_date %}
       <div><span>Registered On</span><span>{{ dinfo.creation_date }}</span></div>
       {% endif %}
@@ -257,9 +298,61 @@
     {% endif %}
 
     {% if vt.permalink %}
-    <div><span>Report</span><span><a href="{{ vt.permalink }}" target="_blank" rel="noopener noreferrer">View on VirusTotal</a></span></div>
+    <div><span>Report</span><span><a href="{{ vt.permalink }}" target="_blank" rel="noopener noreferrer">View URL on VirusTotal</a></span></div>
     {% endif %}
   </div>
+
+  {% if vt.domain_report and vt.domain_report.status == 'success' %}
+  <div style="margin-top: 2rem; border-top: 1px solid var(--border, #ddd); padding-top: 1.5rem;">
+    <h3>VirusTotal Domain Scan</h3>
+    <div class="key-value">
+      <div><span>Domain</span><span>{{ data.domain }}</span></div>
+      {% set dstats = vt.domain_report.last_analysis_stats %}
+      <div><span>Detections</span><span class="{{ 'score-phishing' if dstats.malicious > 0 else ('score-suspicious' if dstats.suspicious > 0 else 'score-safe') }}">{{ dstats.malicious }} malicious / {{ dstats.suspicious }} suspicious (out of {{ dstats.harmless + dstats.malicious + dstats.suspicious + dstats.undetected }})</span></div>
+      <div><span>Reputation Score</span><span>{{ vt.domain_report.reputation }}</span></div>
+      {% if vt.domain_report.registrar %}
+      <div><span>Registrar</span><span>{{ vt.domain_report.registrar }}</span></div>
+      {% endif %}
+      {% if vt.domain_report.creation_date %}
+      <div><span>Registered On</span><span>{{ vt.domain_report.creation_date }}</span></div>
+      {% endif %}
+      {% if vt.domain_report.resolved_ips %}
+      <div><span>Last Resolved IPs</span><span>{{ vt.domain_report.resolved_ips | join(', ') }}</span></div>
+      {% endif %}
+      {% if vt.domain_report.permalink %}
+      <div><span>Report URL</span><span><a href="{{ vt.domain_report.permalink }}" target="_blank" rel="noopener noreferrer">View Domain on VirusTotal</a></span></div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if vt.ip_report and vt.ip_report.status == 'success' %}
+  <div style="margin-top: 2rem; border-top: 1px solid var(--border, #ddd); padding-top: 1.5rem;">
+    <h3>VirusTotal Serving IP Scan</h3>
+    <div class="key-value">
+      <div><span>Serving IP</span><span class="mono">{{ vt.ip_report.ipAddress or vt.ip_report.resolved_ip or vt.serving_ip or '' }}</span></div>
+      {% set ipstats = vt.ip_report.last_analysis_stats %}
+      <div><span>Detections</span><span class="{{ 'score-phishing' if ipstats.malicious > 0 else ('score-suspicious' if ipstats.suspicious > 0 else 'score-safe') }}">{{ ipstats.malicious }} malicious / {{ ipstats.suspicious }} suspicious (out of {{ ipstats.harmless + ipstats.malicious + ipstats.suspicious + ipstats.undetected }})</span></div>
+      <div><span>Reputation Score</span><span>{{ vt.ip_report.reputation }}</span></div>
+      {% if vt.ip_report.as_owner %}
+      <div><span>AS Owner</span><span>{{ vt.ip_report.as_owner }} (ASN: {{ vt.ip_report.asn or 'N/A' }})</span></div>
+      {% endif %}
+      {% if vt.ip_report.network %}
+      <div><span>Network Range</span><span>{{ vt.ip_report.network }}</span></div>
+      {% endif %}
+      {% if vt.ip_report.country %}
+      <div><span>Country</span><span>{{ vt.ip_report.country }} ({{ vt.ip_report.continent or '' }})</span></div>
+      {% endif %}
+      {% if vt.ip_report.cert_subject %}
+      <div><span>HTTPS Cert Subject</span><span class="mono">{{ vt.ip_report.cert_subject }}</span></div>
+      <div><span>HTTPS Cert Issuer</span><span>{{ vt.ip_report.cert_issuer or 'N/A' }}</span></div>
+      {% endif %}
+      {% if vt.ip_report.permalink %}
+      <div><span>Report URL</span><span><a href="{{ vt.ip_report.permalink }}" target="_blank" rel="noopener noreferrer">View IP on VirusTotal</a></span></div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 </section>
 {% elif vt.status == 'not_found' %}
 <section class="card">

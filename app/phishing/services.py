@@ -543,144 +543,243 @@ def deep_content_inspection(response: Response, final_url: str) -> tuple[dict[st
 def score_analysis(features: dict[str, float], page_signals: dict[str, float], reasons: list[str], config: dict[str, Any]) -> tuple[int, str]:
     from app.config import compute_label_from_score
 
-    score = 0
+    local_risk_score = 0
+    domain_risk_score = 0
+    external_risk_score = 0
+    positive_trust_offset = 0
 
+    contributing_factors = []
+    mitigating_factors = []
+
+    # 1. LOCAL RISK SCORE
     # URL-level signals
     if features.get("url_length", 0) > 75:
-        score += 8
+        local_risk_score += 8
+        contributing_factors.append("Long URL length (>75 characters)")
+        
     if features.get("is_typosquatting", 0):
-        score += 30
+        local_risk_score += 30
+        contributing_factors.append("Domain name is close to a known brand (typosquatting check)")
+
     if features.get("subdomain_count", 0) > 2:
-        score += int((features["subdomain_count"] - 2) * 6)
+        sub_penalty = int((features["subdomain_count"] - 2) * 6)
+        local_risk_score += sub_penalty
+        contributing_factors.append(f"Excessive subdomains ({int(features['subdomain_count'])})")
+
     if features.get("has_ip", 0):
-        score += 20
+        local_risk_score += 20
+        contributing_factors.append("URL contains raw IP address instead of domain name")
+
     suspicious_chars = int(features.get("suspicious_chars", 0))
-    score += min(suspicious_chars * 2, 12)
+    if suspicious_chars > 0:
+        char_penalty = min(suspicious_chars * 2, 12)
+        local_risk_score += char_penalty
+        contributing_factors.append(f"Suspicious characters in URL path/params ({suspicious_chars})")
+
     keyword_hits = int(features.get("keyword_hits", 0))
-    score += min(keyword_hits * 6, 24)
+    if keyword_hits > 0:
+        kw_penalty = min(keyword_hits * 6, 24)
+        local_risk_score += kw_penalty
+        contributing_factors.append(f"Suspicious keywords in URL path/params ({keyword_hits})")
+
     if features.get("is_shortener", 0):
-        score += 15
+        local_risk_score += 15
+        contributing_factors.append("URL uses a known link shortener service")
+
     if features.get("phishing_tld", 0):
-        score += 12
+        local_risk_score += 12
+        contributing_factors.append("URL uses a TLD commonly associated with phishing")
+
     if not features.get("uses_https", 1):
-        score += 10
+        local_risk_score += 10
+        contributing_factors.append("URL does not use secure HTTPS transport protocol")
 
-    domain_age = features.get("domain_age_days", -1)
-
-    # Brand impersonation — strong penalty regardless of domain age
-    brand_hits = features.get("brand_hits", [])
-    if features.get("brand_impersonation", 0) and brand_hits:
-        score += 10
-
-        # Compound: brand + suspicious TLD (always penalize)
-        if features.get("phishing_tld", 0):
-            score += 10
-            reasons.append("Brand name combined with suspicious TLD")
-
-        # Compound: brand + appended digits (typosquatting pattern)
-        domain_str = features.get("raw_domain", "")
-        for brand in brand_hits:
-            if re.search(rf"{re.escape(brand)}\d", domain_str, re.IGNORECASE):
-                score += 10
-                reasons.append(f"Brand '{brand}' with appended digits (typosquatting pattern)")
-                break
-
-        # Compound: brand + appended text (brand impersonation with extra keywords)
-        for brand in brand_hits:
-            remaining = re.sub(rf"{re.escape(brand)}", "", domain_str, flags=re.IGNORECASE)
-            remaining = re.sub(r"[.\-]", "", remaining)
-            if len(remaining) >= 3:
-                score += 8
-                reasons.append(f"Brand '{brand}' with appended text '{remaining}'")
-                break
-
-        # Compound: brand + young domain (existing rule, kept)
-        if domain_age > 0 and domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
-            score += 15
-            reasons.append("High risk compound: Domain contains a brand name and is newly registered")
-
-    # Domain intelligence base penalties based on age buckets
-    if domain_age >= 0 and not features.get("whois_unavailable", 0):
-        if domain_age < config.get("DOMAIN_AGE_EXTREME_RISK_DAYS", 30):
-            score += 35
-            reasons.append(f"Domain is extremely young ({domain_age} days)")
-        elif domain_age < config.get("DOMAIN_AGE_VERY_HIGH_RISK_DAYS", 90):
-            score += 25
-            reasons.append(f"Domain is very young ({domain_age} days)")
-        elif domain_age < config.get("DOMAIN_AGE_HIGH_RISK_DAYS", 180):
-            score += 15
-            reasons.append(f"Domain is relatively young ({domain_age} days)")
-        elif domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
-            score += 8
-            reasons.append(f"Domain is moderately young ({domain_age} days)")
-
-    if features.get("whois_unavailable", 0):
-        score += 5
-
-    # Page-level signals - only apply if page was successfully fetched and not bot-blocked
+    # Content-level signals
     page_fetched = not page_signals.get("page_unreachable", 0)
     bot_blocked = page_signals.get("bot_detection", 0)
     binary_response = page_signals.get("binary_response", 0)
 
-    # Compound risks (TLD + Young Age)
-    if domain_age > 0 and domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
-        if features.get("phishing_tld", 0):
-            score += 10
-            reasons.append("High risk compound: Suspicious TLD combined with recently registered domain")
-
     if page_fetched and not bot_blocked and not binary_response:
         if page_signals.get("has_password_field", 0) and not features.get("uses_https", 1):
-            score += 15
+            local_risk_score += 15
+            contributing_factors.append("Password input fields served over unencrypted HTTP")
+            
         if page_signals.get("external_form_action", 0):
-            score += 12
+            local_risk_score += 12
+            contributing_factors.append("Form action submits data to an external domain")
+            
         iframe_count = int(page_signals.get("iframe_count", 0))
-        score += min(iframe_count * 5, 15)
+        if iframe_count > 0:
+            iframe_penalty = min(iframe_count * 5, 15)
+            local_risk_score += iframe_penalty
+            contributing_factors.append(f"Embedded iframes detected ({iframe_count})")
+            
         external_script_count = int(page_signals.get("external_script_count", 0))
-        score += min(external_script_count * 3, 9)
+        if external_script_count > 0:
+            script_penalty = min(external_script_count * 3, 9)
+            local_risk_score += script_penalty
+            contributing_factors.append(f"Loads scripts from external domains ({external_script_count})")
+            
         redirect_count = int(page_signals.get("redirect_count", 0))
         if redirect_count > 1:
-            score += min((redirect_count - 1) * 3, 12)
+            red_penalty = min((redirect_count - 1) * 3, 12)
+            local_risk_score += red_penalty
+            contributing_factors.append(f"Multiple server-side redirects observed ({redirect_count})")
+            
         if page_signals.get("http_error_status", 0):
-            score += 8
+            local_risk_score += 8
+            contributing_factors.append("Web server returned an HTTP error status code (>=400)")
+            
         if page_signals.get("missing_favicon", 1):
-            score += 4
+            local_risk_score += 4
+            contributing_factors.append("Missing website favicon")
+            
         if page_signals.get("no_contact_info", 1):
-            score += 5
+            local_risk_score += 5
+            contributing_factors.append("No company contact details identified on home page")
+            
         if page_signals.get("no_privacy_policy_link", 1):
-            score += 4
+            local_risk_score += 4
+            contributing_factors.append("No privacy policy documentation or links found")
+            
         if page_signals.get("copyright_year_outdated", 0):
-            score += 6
+            local_risk_score += 6
+            contributing_factors.append("Outdated copyright year details on page footer")
+            
         if page_signals.get("too_many_ads", 0):
-            score += 8
+            local_risk_score += 8
+            contributing_factors.append("Excessive scripts from known ad-networks")
+            
         if page_signals.get("content_domain_mismatch", 0):
-            score += 20
+            local_risk_score += 20
+            contributing_factors.append("Obvious mismatch between content brand keywords and domain")
 
-    # Bot detection handling
+    # Bot / unreachability logic
     if bot_blocked:
-        score += 5
+        local_risk_score += 5
+        contributing_factors.append("Bot-detection challenge (reCAPTCHA / Cloudflare) blocked parsing")
     elif binary_response:
-        score += 15
+        local_risk_score += 15
+        contributing_factors.append("Non-HTML / binary document payload returned")
     elif page_signals.get("page_unreachable", 0):
+        domain_age = features.get("domain_age_days", -1)
         if domain_age > config.get("YOUNG_DOMAIN_DAYS", 30):
-            score += 10
+            local_risk_score += 10
+            contributing_factors.append("Target website could not be retrieved over the network")
         else:
-            score += 20
+            local_risk_score += 20
+            contributing_factors.append("Young website domain is completely unreachable")
 
-    # Variables for blended confidence
-    vt_signal = "not available"
+
+    # 2. DOMAIN RISK SCORE
+    domain_age = features.get("domain_age_days", -1)
+    whois_unavailable = features.get("whois_unavailable", 0)
+
+    if domain_age >= 0 and not whois_unavailable:
+        if domain_age < config.get("DOMAIN_AGE_EXTREME_RISK_DAYS", 30):
+            domain_risk_score += 35
+            contributing_factors.append(f"Domain registered extremely recently ({domain_age} days ago)")
+        elif domain_age < config.get("DOMAIN_AGE_VERY_HIGH_RISK_DAYS", 90):
+            domain_risk_score += 25
+            contributing_factors.append(f"Domain registered very recently ({domain_age} days ago)")
+        elif domain_age < config.get("DOMAIN_AGE_HIGH_RISK_DAYS", 180):
+            domain_risk_score += 15
+            contributing_factors.append(f"Domain registered recently ({domain_age} days ago)")
+        elif domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
+            domain_risk_score += 8
+            contributing_factors.append(f"Domain registered within the last year ({domain_age} days ago)")
+    elif whois_unavailable:
+        domain_risk_score += 5
+        contributing_factors.append("WHOIS registration metadata is unavailable")
+
+    brand_hits = features.get("brand_hits", [])
+    if features.get("brand_impersonation", 0) and brand_hits:
+        domain_risk_score += 10
+        contributing_factors.append(f"Domain contains known brand trademark: {', '.join(brand_hits)}")
+
+        if features.get("phishing_tld", 0):
+            domain_risk_score += 10
+            contributing_factors.append("Brand name combined with a highly suspicious TLD")
+
+        domain_str = features.get("raw_domain", "")
+        for brand in brand_hits:
+            if re.search(rf"{re.escape(brand)}\d", domain_str, re.IGNORECASE):
+                domain_risk_score += 10
+                contributing_factors.append(f"Brand '{brand}' combined with trailing digits (typosquatting pattern)")
+                break
+
+        for brand in brand_hits:
+            remaining = re.sub(rf"{re.escape(brand)}", "", domain_str, flags=re.IGNORECASE)
+            remaining = re.sub(r"[.\-]", "", remaining)
+            if len(remaining) >= 3:
+                domain_risk_score += 8
+                contributing_factors.append(f"Brand '{brand}' combined with extra text '{remaining}'")
+                break
+
+        if domain_age > 0 and domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
+            domain_risk_score += 15
+            contributing_factors.append("High risk compound: Domain contains a brand name and is newly registered")
+
+    if domain_age > 0 and domain_age < config.get("DOMAIN_AGE_MODERATE_RISK_DAYS", 365):
+        if features.get("phishing_tld", 0):
+            domain_risk_score += 10
+            contributing_factors.append("High risk compound: Suspicious TLD combined with recently registered domain")
+
+    # SSL Cert details
+    if features.get("ssl_issues", 0.0) > 0:
+        domain_risk_score += 10
+        contributing_factors.append("SSL certificate is expired or invalid")
+        
+    # Free/Weak issuer check
+    for reason in reasons:
+        if "free issuer" in reason:
+            domain_risk_score += 5
+            contributing_factors.append("Uses a free SSL certificate issuer (often used in phishing campaigns)")
+            break
+
+    # DNS records (MX records)
+    if features.get("dns_issues", 0.0) > 0:
+        domain_risk_score += 10
+        contributing_factors.append("Domain has no MX records (unable to receive emails)")
+
+
+    # 3. EXTERNAL THREAT SCORE
+    # Safe Browsing
+    sb_summary = page_signals.get("sb_summary", {})
     sb_signal = "not available"
-    ipdb_signal = "not available"
-    sources_count = 0
-    clean_sources = 0
-    flagged_sources = 0
+    if sb_summary and sb_summary.get("status") == "success":
+        if not sb_summary.get("safe") and not sb_summary.get("no_threats_found"):
+            external_risk_score += 20
+            threats = sb_summary.get("threat_types", [])
+            contributing_factors.append(f"Google Safe Browsing flagged this URL. Threat(s): {', '.join(threats)} (+20)")
+            sb_signal = "flagged"
+        else:
+            sb_signal = "clean"
 
-    # Optional VirusTotal bump using configurable values
+    # AbuseIPDB
+    abuseipdb_summary = page_signals.get("abuseipdb_summary", {})
+    ipdb_signal = "not available"
+    if abuseipdb_summary and abuseipdb_summary.get("status") == "success":
+        confidence = abuseipdb_summary.get("abuseConfidenceScore", 0)
+        if confidence > 0:
+            bump = min(int(confidence / 5), 15)
+            external_risk_score += bump
+            contributing_factors.append(f"AbuseIPDB flagged host IP with {confidence}% abuse confidence (+{bump})")
+            if confidence > 25:
+                ipdb_signal = "flagged"
+            else:
+                ipdb_signal = "clean"
+        else:
+            ipdb_signal = "clean"
+
+    # VirusTotal
     vt_summary = page_signals.get("vt_summary", {})
+    vt_signal = "not available"
     if vt_summary and vt_summary.get("status") == "success":
-        sources_count += 1
-        stats = vt_summary.get("stats", {})
-        malicious = stats.get("malicious_count", vt_summary.get("malicious_count", 0))
-        suspicious = stats.get("suspicious_count", vt_summary.get("suspicious_count", 0))
+        url_report = vt_summary.get("url_report", {})
+        stats = url_report.get("stats", {})
+        malicious = stats.get("malicious_count", url_report.get("malicious_count", 0))
+        suspicious = stats.get("suspicious_count", url_report.get("suspicious_count", 0))
 
         vt_bump_per_malicious = config.get("VT_SCORE_BUMP_MALICIOUS", 15)
         vt_bump_per_suspicious = config.get("VT_SCORE_BUMP_SUSPICIOUS", 5)
@@ -694,120 +793,170 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         if malicious > 0:
             bump = min(malicious * vt_bump_per_malicious, vt_max_malicious)
             total_vt_penalty += bump
-            reasons.append(f"VirusTotal: {malicious} engine(s) detecting URL as malicious (+{bump})")
+            contributing_factors.append(f"VirusTotal: {malicious} engine(s) flagged URL as malicious (+{bump})")
         if suspicious > 0:
             bump = min(suspicious * vt_bump_per_suspicious, vt_max_suspicious)
             total_vt_penalty += bump
-            reasons.append(f"VirusTotal: {suspicious} engine(s) detecting URL as suspicious (+{bump})")
+            contributing_factors.append(f"VirusTotal: {suspicious} engine(s) flagged URL as suspicious (+{bump})")
 
-        categories = vt_summary.get("categories", [])
+        categories = url_report.get("categories", [])
         negative_keywords = ["phishing", "malware", "scam", "credential theft", "fraud"]
         if any(any(kw in cat.lower() for kw in negative_keywords) for cat in categories):
             total_vt_penalty += vt_bump_cat
-            reasons.append(f"VirusTotal: Negative categories detected (+{vt_bump_cat})")
+            contributing_factors.append(f"VirusTotal URL classification is suspicious (+{vt_bump_cat})")
 
-        reputation = vt_summary.get("reputation", 0)
+        reputation = url_report.get("reputation", 0)
         if reputation < -10:
             total_vt_penalty += vt_bump_rep
-            reasons.append(f"VirusTotal: Meaningfully negative reputation score (+{vt_bump_rep})")
+            contributing_factors.append(f"VirusTotal URL reputation score is negative ({reputation}) (+{vt_bump_rep})")
 
-        if total_vt_penalty > 0:
-            score += total_vt_penalty
+        # Domain report additions
+        domain_report = vt_summary.get("domain_report")
+        if domain_report and domain_report.get("status") == "success":
+            dom_stats = domain_report.get("last_analysis_stats", {})
+            dom_malicious = dom_stats.get("malicious", 0)
+            if dom_malicious > 0:
+                total_vt_penalty += 15
+                contributing_factors.append(f"VirusTotal: Domain has {dom_malicious} malicious engine flag(s) (+15)")
+
+        # IP report additions
+        ip_report = vt_summary.get("ip_report")
+        if ip_report and ip_report.get("status") == "success":
+            ip_stats = ip_report.get("last_analysis_stats", {})
+            ip_malicious = ip_stats.get("malicious", 0)
+            if ip_malicious > 0:
+                total_vt_penalty += 15
+                contributing_factors.append(f"VirusTotal: Host IP has {ip_malicious} malicious engine flag(s) (+15)")
+
+        # Cap total VT penalty
+        external_risk_score += min(total_vt_penalty, 40)
+
+        # Signal labeling
+        if malicious > 0 or suspicious > 0 or (domain_report and domain_report.get("last_analysis_stats", {}).get("malicious", 0) > 0):
             vt_signal = "flagged"
-            flagged_sources += 1
         else:
-            # Check for positive reductions
-            vt_max_reduction = config.get("VT_MAX_POSITIVE_REDUCTION", 8)
-            reduction = 0
-
-            dates = vt_summary.get("dates", {})
-            first_sub = dates.get("first_submission_date")
-            if first_sub:
-                from datetime import datetime, timezone
-                try:
-                    first_sub_dt = datetime.fromisoformat(first_sub)
-                    age_days = (datetime.now(timezone.utc) - first_sub_dt).days
-                    if age_days > 180 and malicious == 0:
-                        red = config.get("VT_SCORE_REDUCTION_OLD_CLEAN", 5)
-                        reduction += red
-                        reasons.append(f"VirusTotal: Domain has a long, clean submission history (-{red})")
-                except Exception:
-                    pass
-
-            votes = vt_summary.get("votes", {})
-            harmless_votes = votes.get("harmless", 0)
-            malicious_votes = votes.get("malicious", 0)
-            if harmless_votes > 10 and malicious_votes == 0 and malicious == 0:
-                red = config.get("VT_SCORE_REDUCTION_HARMLESS_VOTES", 3)
-                reduction += red
-                reasons.append(f"VirusTotal: Strong community harmless votes (-{red})")
-
-            if reduction > 0:
-                reduction = min(reduction, vt_max_reduction)
-                # Ensure we don't wash away strong heuristic signals
-                if score >= config.get("SUSPICIOUS_THRESHOLD", 25):
-                    reasons.append(f"VirusTotal: Positive signals capped to prevent overriding local heuristics")
-                else:
-                    score = max(0, score - reduction)
-
             vt_signal = "clean"
-            clean_sources += 1
 
-    sb_summary = page_signals.get("sb_summary", {})
-    if sb_summary and sb_summary.get("status") == "success":
+
+    # 4. POSITIVE TRUST OFFSET
+    if vt_summary and vt_summary.get("status") == "success":
+        url_report = vt_summary.get("url_report", {})
+        stats = url_report.get("stats", {})
+        malicious = stats.get("malicious_count", url_report.get("malicious_count", 0))
+
+        # We can subtract if clean history exists
+        dates = url_report.get("dates", {})
+        first_sub = dates.get("first_submission_date")
+        if first_sub and malicious == 0:
+            from datetime import datetime, timezone
+            try:
+                first_sub_dt = datetime.fromisoformat(first_sub)
+                age_days = (datetime.now(timezone.utc) - first_sub_dt).days
+                if age_days > 180:
+                    red = config.get("VT_SCORE_REDUCTION_OLD_CLEAN", 5)
+                    positive_trust_offset += red
+                    mitigating_factors.append(f"VirusTotal: Long clean submission history (first submitted {age_days} days ago) (-{red})")
+            except Exception:
+                pass
+
+        # Subtract if community votes are harmless
+        votes = url_report.get("votes", {})
+        harmless_votes = votes.get("harmless", 0)
+        malicious_votes = votes.get("malicious", 0)
+        if harmless_votes > 10 and malicious_votes == 0 and malicious == 0:
+            red = config.get("VT_SCORE_REDUCTION_HARMLESS_VOTES", 3)
+            positive_trust_offset += red
+            mitigating_factors.append(f"VirusTotal: Strong community agreement on safety ({harmless_votes} harmless votes) (-{red})")
+
+    # Additional mitigation for very old domains
+    if domain_age > 730:
+        positive_trust_offset += 5
+        mitigating_factors.append("Domain age is highly mature (>2 years) (-5)")
+
+    # Cap positive trust offset
+    max_reduction = config.get("VT_MAX_POSITIVE_REDUCTION", 10)
+    positive_trust_offset = min(positive_trust_offset, max_reduction)
+
+
+    # 5. FINAL SCORE FUSION & BOUNDING
+    base_local_and_domain = local_risk_score + domain_risk_score
+    final_risk_score = base_local_and_domain + external_risk_score - positive_trust_offset
+
+    phishing_threshold = config.get("PHISHING_THRESHOLD", 50)
+    suspicious_threshold = config.get("SUSPICIOUS_THRESHOLD", 25)
+
+    if base_local_and_domain >= phishing_threshold:
+        if final_risk_score < phishing_threshold:
+            final_risk_score = phishing_threshold
+            mitigating_factors.append("Mitigation capped: local phishing patterns override external clean history")
+    elif base_local_and_domain >= suspicious_threshold:
+        if final_risk_score < suspicious_threshold:
+            final_risk_score = suspicious_threshold
+            mitigating_factors.append("Mitigation capped: local suspicious patterns override external clean history")
+
+    final_risk_score = max(0, min(final_risk_score, 100))
+    final_label = compute_label_from_score(final_risk_score, config)
+
+    # Blend confidence evaluation
+    sources_count = 0
+    flagged_sources = 0
+    clean_sources = 0
+
+    if sb_signal != "not available":
         sources_count += 1
-        if not sb_summary.get("safe") and not sb_summary.get("no_threats_found"):
-            score += 20
-            threats = sb_summary.get("threat_types", [])
-            reasons.append(f"Google Safe Browsing flagged this URL. Threats: {', '.join(threats)} (+20)")
-            sb_signal = "flagged"
+        if sb_signal == "flagged":
             flagged_sources += 1
         else:
-            sb_signal = "clean"
             clean_sources += 1
 
-    abuseipdb_summary = page_signals.get("abuseipdb_summary", {})
-    if abuseipdb_summary and abuseipdb_summary.get("status") == "success":
+    if ipdb_signal != "not available":
         sources_count += 1
-        confidence = abuseipdb_summary.get("abuseConfidenceScore", 0)
-        if confidence > 0:
-            bump = min(int(confidence / 5), 15)
-            score += bump
-            reasons.append(f"AbuseIPDB flagged IP with {confidence}% confidence (+{bump})")
-            if confidence > 25:
-                ipdb_signal = "flagged"
-                flagged_sources += 1
-            else:
-                ipdb_signal = "clean"
-                clean_sources += 1
+        if ipdb_signal == "flagged":
+            flagged_sources += 1
         else:
-            ipdb_signal = "clean"
             clean_sources += 1
 
-    score = max(0, min(score, 100))
-    label = compute_label_from_score(score, config)
+    if vt_signal != "not available":
+        sources_count += 1
+        if vt_signal == "flagged":
+            flagged_sources += 1
+        else:
+            clean_sources += 1
 
-    # Blended confidence evaluation
     confidence_mode = "local_only" if sources_count == 0 else "local_plus_apis"
     confidence_level = "low"
     confidence_reason = "Local heuristics only."
 
     if sources_count > 0:
-        if label == "safe" and flagged_sources == 0:
+        if final_label == "safe" and flagged_sources == 0:
             confidence_level = "high"
             confidence_reason = f"Local heuristics and {sources_count} external source(s) agree on low risk."
-        elif label != "safe" and flagged_sources > 0:
+        elif final_label != "safe" and flagged_sources > 0:
             confidence_level = "high"
             confidence_reason = f"Local heuristics and {flagged_sources} external source(s) confirm elevated risk."
-        elif label == "safe" and flagged_sources > 0:
+        elif final_label == "safe" and flagged_sources > 0:
             confidence_level = "medium"
-            confidence_reason = f"Local heuristics found no major flags, but {flagged_sources} external source(s) flagged this target."
-        elif label != "safe" and clean_sources > 0:
+            confidence_reason = f"Local heuristics found low risk, but {flagged_sources} external source(s) flagged this target."
+        elif final_label != "safe" and clean_sources > 0:
             confidence_level = "medium"
             confidence_reason = f"Local heuristics flagged the target, but external sources lack corroborating reports."
         else:
             confidence_level = "medium"
             confidence_reason = f"Blended analysis from local heuristics and {sources_count} external source(s)."
+
+    page_signals["fusion_assessment"] = {
+        "local_risk_score": local_risk_score,
+        "domain_risk_score": domain_risk_score,
+        "external_risk_score": external_risk_score,
+        "positive_trust_offset": positive_trust_offset,
+        "final_risk_score": final_risk_score,
+        "final_label": final_label,
+        "confidence_mode": confidence_mode,
+        "confidence_level": confidence_level,
+        "confidence_reason": confidence_reason,
+        "contributing_factors": contributing_factors,
+        "mitigating_factors": mitigating_factors
+    }
 
     page_signals["blended_confidence"] = {
         "confidence_mode": confidence_mode,
@@ -818,7 +967,11 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         "ipdb_signal": ipdb_signal
     }
 
-    return score, label
+    for factor in contributing_factors:
+        if factor not in reasons:
+            reasons.append(factor)
+
+    return final_risk_score, final_label
 
 
 def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) -> AnalysisResult:
@@ -993,16 +1146,92 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
                 except RuntimeError:
                     pass
                 vt_data = cached_vt
+                vt_data["fetched_from_cache"] = True
 
         if not vt_data:
             try:
-                current_app.logger.info("[VT AUDIT] Cache miss. Fetching from API.")
+                current_app.logger.info("[VT AUDIT] Cache miss. Fetching URL report from API.")
             except RuntimeError:
                 pass
             from app.phishing.virustotal import get_virustotal_report
-            vt_data = get_virustotal_report(normalized, config)
+            url_report = get_virustotal_report(normalized, config)
 
-        # Normalize VT data so old cached results match the current schema
+            if url_report and url_report.get("status") == "success":
+                # Staged Domain Report Fetch
+                domain_report = None
+                if domain:
+                    # Check recent domain analysis for reuse
+                    cutoff_time_domain = datetime.now(timezone.utc) - timedelta(hours=24)
+                    cached_dom_analysis = Analysis.query.filter(
+                        Analysis.domain == domain,
+                        Analysis.created_at >= cutoff_time_domain
+                    ).order_by(Analysis.created_at.desc()).first()
+
+                    if cached_dom_analysis and cached_dom_analysis.features_summary:
+                        c_vt = cached_dom_analysis.features_summary.get("page_signals", {}).get("vt_summary", {})
+                        if c_vt and isinstance(c_vt, dict) and c_vt.get("domain_report") and c_vt["domain_report"].get("status") == "success":
+                            domain_report = c_vt["domain_report"]
+                            try:
+                                current_app.logger.info(f"[VT AUDIT] Domain cache hit! Reusing VT domain report for {domain}.")
+                            except RuntimeError:
+                                pass
+
+                    if not domain_report:
+                        from app.phishing.virustotal import get_vt_domain_report
+                        try:
+                            current_app.logger.info(f"[VT AUDIT] Cache miss. Fetching VT domain report for {domain}.")
+                        except RuntimeError:
+                            pass
+                        domain_report = get_vt_domain_report(domain, config)
+
+                # Staged IP Report Fetch
+                ip_report = None
+                resolved_ip = url_report.get("serving_ip") or features.get("ip_address")
+                if resolved_ip:
+                    # Check recent IP analysis for reuse
+                    cutoff_time_ip = datetime.now(timezone.utc) - timedelta(hours=24)
+                    cached_ip_analyses = Analysis.query.filter(
+                        Analysis.created_at >= cutoff_time_ip
+                    ).order_by(Analysis.created_at.desc()).all()
+
+                    for candidate in cached_ip_analyses:
+                        c_fs = candidate.features_summary or {}
+                        c_vt = c_fs.get("page_signals", {}).get("vt_summary", {})
+                        if c_vt and isinstance(c_vt, dict) and c_vt.get("ip_report") and c_vt["ip_report"].get("status") == "success":
+                            cand_ip_report = c_vt["ip_report"]
+                            if cand_ip_report.get("resolved_ip") == resolved_ip or cand_ip_report.get("ipAddress") == resolved_ip:
+                                ip_report = cand_ip_report
+                                try:
+                                    current_app.logger.info(f"[VT AUDIT] IP cache hit! Reusing VT IP report for {resolved_ip}.")
+                                except RuntimeError:
+                                    pass
+                                break
+
+                    if not ip_report:
+                        from app.phishing.virustotal import get_vt_ip_report
+                        try:
+                            current_app.logger.info(f"[VT AUDIT] Cache miss. Fetching VT IP report for {resolved_ip}.")
+                        except RuntimeError:
+                            pass
+                        ip_report = get_vt_ip_report(resolved_ip, config)
+
+                vt_data = {
+                    "status": "success",
+                    "url_report": url_report,
+                    "domain_report": domain_report,
+                    "ip_report": ip_report,
+                    "fetched_from_cache": False,
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "availability": {
+                        "url_report": True,
+                        "domain_report": domain_report is not None and domain_report.get("status") == "success",
+                        "ip_report": ip_report is not None and ip_report.get("status") == "success",
+                    }
+                }
+            else:
+                vt_data = url_report
+
+        # Normalize VT data to ensure consistent structure
         if vt_data and vt_data.get("status") == "success":
             from app.phishing.virustotal import normalize_vt_summary
             vt_data = normalize_vt_summary(vt_data)
@@ -1138,6 +1367,7 @@ def run_analysis(raw_url: str, config: dict[str, Any], *, persist: bool = True) 
             "registrar": domain_info.get("registrar", "unknown"),
             "name_servers": domain_info.get("name_servers", []),
             "domain_age_bucket": domain_info.get("domain_age_bucket", ""),
+            "domain_trust": domain_info.get("domain_trust", {}),
         },
         "brand_token_hits": features.get("brand_hits", []),
     }

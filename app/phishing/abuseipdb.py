@@ -65,9 +65,23 @@ def get_abuseipdb_report(ip: str, config: dict[str, Any]) -> dict[str, Any] | No
                 "reporterCountryCode": r.get("reporterCountryCode")
             })
 
+        # Determine normalized values
+        verdict = "flagged" if score > 25 else "clean"
+        severity = "low"
+        if score > 50:
+            severity = "high"
+        elif score > 0:
+            severity = "medium"
+
+        reason = f"IP address is clean with 0% abuse confidence."
+        if score > 0:
+            reason = f"IP address has {score}% abuse confidence score ({verdict_band}) with {data.get('totalReports', 0)} total report(s)."
+
         return {
             "status": "success",
-            "ipAddress": data.get("ipAddress"),
+            "available": True,
+            "resolved_ip": data.get("ipAddress"),
+            "ipAddress": data.get("ipAddress"),  # backward compatibility
             "isPublic": data.get("isPublic"),
             "ipVersion": data.get("ipVersion"),
             "isWhitelisted": data.get("isWhitelisted"),
@@ -81,12 +95,32 @@ def get_abuseipdb_report(ip: str, config: dict[str, Any]) -> dict[str, Any] | No
             "totalReports": data.get("totalReports"),
             "numDistinctUsers": data.get("numDistinctUsers"),
             "lastReportedAt": data.get("lastReportedAt"),
-            "top_reports": top_reports
+            "top_reports": top_reports[:5],  # capped list
+            "verdict": verdict,
+            "severity": severity,
+            "confidence": "high",
+            "reason": reason
         }
 
     except RequestException as e:
         logger.warning(f"[AbuseIPDB] Network/API error: {e}")
-        return {"status": "error", "message": f"Network error: {e}"}
+        return {
+            "status": "error",
+            "available": False,
+            "verdict": "unknown",
+            "severity": "low",
+            "confidence": "low",
+            "reason": f"AbuseIPDB check failed: Network error: {e}",
+            "message": f"Network error: {e}"
+        }
     except Exception as e:
         logger.warning(f"[AbuseIPDB] Unexpected error: {e}")
-        return {"status": "error", "message": "Internal error during AbuseIPDB lookup"}
+        return {
+            "status": "error",
+            "available": False,
+            "verdict": "unknown",
+            "severity": "low",
+            "confidence": "low",
+            "reason": f"AbuseIPDB check failed: Internal error: {e}",
+            "message": "Internal error during AbuseIPDB lookup"
+        }

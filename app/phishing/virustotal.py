@@ -14,6 +14,26 @@ _last_vt_call_time: float = 0.0
 _VT_MIN_INTERVAL = 15.0
 
 
+def _ts_to_iso(ts) -> str | None:
+    from datetime import datetime, timezone
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
+def _vt_rate_limit_guard():
+    global _last_vt_call_time
+    elapsed = time.monotonic() - _last_vt_call_time
+    if elapsed < _VT_MIN_INTERVAL:
+        wait = _VT_MIN_INTERVAL - elapsed
+        logger.info(f"[VT] Rate-limit guard: waiting {wait:.1f}s since last VT call.")
+        time.sleep(wait)
+    _last_vt_call_time = time.monotonic()
+
+
 def _curate_meta(meta: dict) -> dict:
     """Extract useful meta tags from VT html_info, discard bloated/irrelevant ones."""
     if not meta:
@@ -42,15 +62,35 @@ def normalize_vt_summary(vt: dict) -> dict:
     if not vt or vt.get("status") != "success":
         return vt
 
-    # Ensure nested `stats` exists (old code always had it, but guard anyway)
-    if "stats" not in vt or not isinstance(vt.get("stats"), dict):
-        malicious = vt.get("malicious_count", 0)
-        suspicious = vt.get("suspicious_count", 0)
-        harmless = vt.get("harmless_count", 0)
-        undetected = vt.get("undetected_count", 0)
-        timeout_count = vt.get("timeout_count", 0)
+    # Wrap old format flat report into url_report
+    if "url_report" not in vt:
+        url_report_keys = {
+            "stats", "reputation", "votes", "categories", "dates", "final_url",
+            "redirection_chain", "http_response", "top_engine_hits",
+            "additional_flagged_engines", "tags", "html_info", "serving_ip",
+            "outgoing_links", "outgoing_links_count", "favicon", "jarm",
+            "category_vendors", "permalink", "verdict", "malicious_count", "suspicious_count"
+        }
+        url_report = {k: v for k, v in vt.items() if k in url_report_keys}
+        for k in list(vt.keys()):
+            if k in url_report_keys:
+                del vt[k]
+        vt["url_report"] = url_report
+
+    url_rep = vt.get("url_report")
+    if not isinstance(url_rep, dict):
+        vt["url_report"] = {}
+        url_rep = vt["url_report"]
+
+    # Normalize url_rep fields
+    if "stats" not in url_rep or not isinstance(url_rep.get("stats"), dict):
+        malicious = url_rep.get("malicious_count", 0)
+        suspicious = url_rep.get("suspicious_count", 0)
+        harmless = url_rep.get("harmless_count", 0)
+        undetected = url_rep.get("undetected_count", 0)
+        timeout_count = url_rep.get("timeout_count", 0)
         total = malicious + suspicious + harmless + undetected + timeout_count
-        vt["stats"] = {
+        url_rep["stats"] = {
             "malicious_count": malicious,
             "suspicious_count": suspicious,
             "harmless_count": harmless,
@@ -59,76 +99,97 @@ def normalize_vt_summary(vt: dict) -> dict:
             "total_engines": total,
         }
 
-    # Backfill flat keys from nested stats for backward compat
-    stats = vt["stats"]
-    if "malicious_count" not in vt:
-        vt["malicious_count"] = stats.get("malicious_count", 0)
-    if "suspicious_count" not in vt:
-        vt["suspicious_count"] = stats.get("suspicious_count", 0)
+    # Populate dates
+    if "dates" not in url_rep:
+        url_rep["dates"] = {}
 
-    # Ensure dates dict
-    if "dates" not in vt:
-        vt["dates"] = {}
+    # Populate http_response
+    if "http_response" not in url_rep:
+        url_rep["http_response"] = {}
 
-    # Ensure http_response dict
-    if "http_response" not in vt:
-        vt["http_response"] = {}
+    # Populate html_info
+    if "html_info" not in url_rep:
+        url_rep["html_info"] = {}
+    if "title" not in url_rep["html_info"]:
+        url_rep["html_info"]["title"] = None
+    if "meta" not in url_rep["html_info"]:
+        url_rep["html_info"]["meta"] = {}
 
-    # Ensure html_info dict with title
-    if "html_info" not in vt:
-        vt["html_info"] = {}
-    if "title" not in vt["html_info"]:
-        vt["html_info"]["title"] = None
-    if "meta" not in vt["html_info"]:
-        vt["html_info"]["meta"] = {}
+    # Populate categories
+    if "categories" not in url_rep:
+        url_rep["categories"] = []
+    elif isinstance(url_rep["categories"], dict):
+        url_rep["categories"] = list(set(url_rep["categories"].values()))
 
-    # Ensure categories is a list
-    if "categories" not in vt:
-        vt["categories"] = []
-    elif isinstance(vt["categories"], dict):
-        vt["categories"] = list(set(vt["categories"].values()))
-
-    # Ensure tags is a list
-    if "tags" not in vt:
-        vt["tags"] = []
-
-    # Ensure top_engine_hits is a list
-    if "top_engine_hits" not in vt:
-        vt["top_engine_hits"] = []
-
-    # Ensure votes dict
-    if "votes" not in vt:
-        vt["votes"] = {"harmless": 0, "malicious": 0}
-
-    # Ensure redirection_chain is a list
-    if "redirection_chain" not in vt:
-        vt["redirection_chain"] = []
-
-    # Backfill new fields with safe defaults
+    # Normalize defaults for new fields in url_report
     for field, default in (
+        ("reputation", 0),
+        ("votes", {"harmless": 0, "malicious": 0}),
+        ("final_url", None),
+        ("redirection_chain", []),
+        ("top_engine_hits", []),
+        ("additional_flagged_engines", 0),
+        ("tags", []),
         ("serving_ip", None),
         ("outgoing_links", []),
         ("outgoing_links_count", 0),
         ("favicon", None),
         ("jarm", None),
         ("category_vendors", {}),
-        ("final_url", None),
         ("permalink", ""),
+        ("verdict", {}),
+        ("malicious_count", 0),
+        ("suspicious_count", 0),
     ):
-        if field not in vt:
-            vt[field] = default
+        if field not in url_rep:
+            url_rep[field] = default
 
-    # Build verdict if missing (new field)
-    if "verdict" not in vt:
-        vt["verdict"] = _build_verdict_label(vt)
+    if not url_rep.get("verdict"):
+        url_rep["verdict"] = _build_verdict_label(url_rep)
 
-    # Ensure additional_flagged_engines exists
-    if "additional_flagged_engines" not in vt:
-        vt["additional_flagged_engines"] = 0
+    # Copy URL report fields to the root for backward compatibility with existing templates/code
+    for k in [
+        "stats", "reputation", "votes", "categories", "dates", "final_url",
+        "redirection_chain", "http_response", "top_engine_hits",
+        "additional_flagged_engines", "tags", "html_info", "serving_ip",
+        "outgoing_links", "outgoing_links_count", "favicon", "jarm",
+        "category_vendors", "permalink", "verdict", "malicious_count", "suspicious_count"
+    ]:
+        vt[k] = url_rep.get(k)
 
-    # Ensure reputation exists
-    if "reputation" not in vt:
-        vt["reputation"] = 0
+    # Initialize domain and IP reports
+    if "domain_report" not in vt:
+        vt["domain_report"] = None
+    if "ip_report" not in vt:
+        vt["ip_report"] = None
+
+    # Availability block
+    if "availability" not in vt:
+        vt["availability"] = {}
+    vt["availability"]["url_report"] = True
+    vt["availability"]["domain_report"] = vt["domain_report"] is not None
+    vt["availability"]["ip_report"] = vt["ip_report"] is not None
+
+    if "fetched_from_cache" not in vt:
+        vt["fetched_from_cache"] = False
+    if "fetched_at" not in vt:
+        from datetime import datetime, timezone
+        vt["fetched_at"] = datetime.now(timezone.utc).isoformat()
+    if "limitations" not in vt:
+        vt["limitations"] = []
+
+    # Calculate combined_vt_signal
+    url_flagged = vt.get("malicious_count", 0) > 0 or vt.get("suspicious_count", 0) > 0
+    dom_flagged = False
+    if vt.get("domain_report"):
+        dom_stats = vt["domain_report"].get("last_analysis_stats", {})
+        dom_flagged = dom_stats.get("malicious", 0) > 0 or dom_stats.get("suspicious", 0) > 0
+    ip_flagged = False
+    if vt.get("ip_report"):
+        ip_stats = vt["ip_report"].get("last_analysis_stats", {})
+        ip_flagged = ip_stats.get("malicious", 0) > 0 or ip_stats.get("suspicious", 0) > 0
+        
+    vt["combined_vt_signal"] = "flagged" if (url_flagged or dom_flagged or ip_flagged) else "clean"
 
     return vt
 
@@ -405,3 +466,177 @@ def get_virustotal_report(url: str, config: dict[str, Any]) -> dict[str, Any] | 
     except Exception as e:
         logger.warning(f"[VT] Unexpected error: {e}")
         return {"status": "error", "message": "Internal error during VT lookup"}
+
+
+def get_vt_domain_report(domain: str, config: dict[str, Any]) -> dict[str, Any] | None:
+    """Retrieve domain report from VirusTotal API v3."""
+    if not config.get("VT_ENABLED", False):
+        return None
+
+    api_key = config.get("VT_API_KEY")
+    if not api_key:
+        return None
+
+    timeout = config.get("VT_TIMEOUT", 10)
+
+    # Apply rate-limit guard
+    _vt_rate_limit_guard()
+
+    headers = {
+        "accept": "application/json",
+        "x-apikey": api_key,
+    }
+
+    try:
+        logger.info(f"[VT] Querying domain report: {domain}")
+        resp = requests.get(
+            f"https://www.virustotal.com/api/v3/domains/{domain}",
+            headers=headers,
+            timeout=timeout,
+        )
+
+        if resp.status_code == 429:
+            logger.warning(f"[VT] Rate limit exceeded on domain check ({domain}).")
+            return {"status": "rate_limited", "message": "VirusTotal rate limit exceeded during domain lookup"}
+
+        if resp.status_code == 404:
+            logger.info(f"[VT] Domain {domain} not found in VirusTotal database.")
+            return {"status": "not_found", "message": "Domain not found in VirusTotal database"}
+
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        attributes = data.get("attributes", {})
+
+        stats = attributes.get("last_analysis_stats", {})
+        votes = attributes.get("total_votes", {})
+        categories = attributes.get("categories", {})
+        unique_categories = list(set(categories.values()))
+
+        # Extract resolved IPs / last resolved IPs from last_dns_records if present
+        resolved_ips = []
+        dns_records = attributes.get("last_dns_records", [])
+        for record in dns_records:
+            if record.get("type") == "A" and record.get("value"):
+                resolved_ips.append(record.get("value"))
+        
+        # Bounded resolved IPs
+        resolved_ips = list(set(resolved_ips))[:10]
+
+        summary = {
+            "status": "success",
+            "reputation": attributes.get("reputation", 0),
+            "votes": {
+                "harmless": votes.get("harmless", 0),
+                "malicious": votes.get("malicious", 0),
+            },
+            "last_analysis_stats": {
+                "harmless": stats.get("harmless", 0),
+                "malicious": stats.get("malicious", 0),
+                "suspicious": stats.get("suspicious", 0),
+                "undetected": stats.get("undetected", 0),
+                "timeout": stats.get("timeout", 0),
+            },
+            "categories": unique_categories,
+            "category_vendors": categories,
+            "creation_date": _ts_to_iso(attributes.get("creation_date")),
+            "last_update_date": _ts_to_iso(attributes.get("last_update_date")),
+            "registrar": attributes.get("registrar"),
+            "tags": attributes.get("tags", [])[:10],
+            "popularity_ranks": attributes.get("popularity_ranks", {}),
+            "resolved_ips": resolved_ips,
+            "permalink": f"https://www.virustotal.com/gui/domain/{domain}",
+        }
+        return summary
+
+    except RequestException as e:
+        logger.warning(f"[VT] Domain API check error: {e}")
+        return {"status": "error", "message": f"Network error: {e}"}
+    except Exception as e:
+        logger.warning(f"[VT] Unexpected error in domain check: {e}")
+        return {"status": "error", "message": "Internal error during VT domain lookup"}
+
+
+def get_vt_ip_report(ip: str, config: dict[str, Any]) -> dict[str, Any] | None:
+    """Retrieve IP address report from VirusTotal API v3."""
+    if not config.get("VT_ENABLED", False):
+        return None
+
+    api_key = config.get("VT_API_KEY")
+    if not api_key:
+        return None
+
+    if not ip:
+        return None
+
+    timeout = config.get("VT_TIMEOUT", 10)
+
+    # Apply rate-limit guard
+    _vt_rate_limit_guard()
+
+    headers = {
+        "accept": "application/json",
+        "x-apikey": api_key,
+    }
+
+    try:
+        logger.info(f"[VT] Querying IP report: {ip}")
+        resp = requests.get(
+            f"https://www.virustotal.com/api/v3/ip_addresses/{ip}",
+            headers=headers,
+            timeout=timeout,
+        )
+
+        if resp.status_code == 429:
+            logger.warning(f"[VT] Rate limit exceeded on IP check ({ip}).")
+            return {"status": "rate_limited", "message": "VirusTotal rate limit exceeded during IP lookup"}
+
+        if resp.status_code == 404:
+            logger.info(f"[VT] IP {ip} not found in VirusTotal database.")
+            return {"status": "not_found", "message": "IP not found in VirusTotal database"}
+
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        attributes = data.get("attributes", {})
+
+        stats = attributes.get("last_analysis_stats", {})
+        votes = attributes.get("total_votes", {})
+        
+        cert = attributes.get("last_https_certificate", {})
+        cert_subject = cert.get("subject", {}).get("CN") if cert else None
+        cert_issuer = cert.get("issuer", {}).get("O") if cert else None
+
+        summary = {
+            "status": "success",
+            "as_owner": attributes.get("as_owner"),
+            "asn": attributes.get("asn"),
+            "country": attributes.get("country"),
+            "continent": attributes.get("continent"),
+            "network": attributes.get("network"),
+            "regional_registry": attributes.get("regional_registry"),
+            "reputation": attributes.get("reputation", 0),
+            "votes": {
+                "harmless": votes.get("harmless", 0),
+                "malicious": votes.get("malicious", 0),
+            },
+            "last_analysis_stats": {
+                "harmless": stats.get("harmless", 0),
+                "malicious": stats.get("malicious", 0),
+                "suspicious": stats.get("suspicious", 0),
+                "undetected": stats.get("undetected", 0),
+                "timeout": stats.get("timeout", 0),
+            },
+            "tags": attributes.get("tags", [])[:10],
+            "last_https_certificate_date": _ts_to_iso(attributes.get("last_https_certificate_date")),
+            "cert_subject": cert_subject,
+            "cert_issuer": cert_issuer,
+            "permalink": f"https://www.virustotal.com/gui/ip-address/{ip}",
+        }
+        return summary
+
+    except RequestException as e:
+        logger.warning(f"[VT] IP API check error: {e}")
+        return {"status": "error", "message": f"Network error: {e}"}
+    except Exception as e:
+        logger.warning(f"[VT] Unexpected error in IP check: {e}")
+        return {"status": "error", "message": "Internal error during VT IP lookup"}
+
