@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import io
 from flask import (
     Blueprint,
     current_app,
@@ -9,6 +10,7 @@ from flask import (
     render_template,
     request,
     send_from_directory,
+    send_file,
 )
 
 from app.extensions import db, limiter, csrf
@@ -71,6 +73,55 @@ def report_detail(analysis_id):
         from app.phishing.virustotal import normalize_vt_summary
         data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
     return render_template("report.html", data=data, page_title=f"Report #{analysis_id}")
+
+
+@bp.route("/report/<int:analysis_id>/pdf/standard")
+def report_pdf_standard(analysis_id):
+    analysis = db.session.get(Analysis, analysis_id)
+    if not analysis:
+        return render_template("errors/404.html", page_title="Not found"), 404
+    data = serialize_analysis(analysis)
+    vt = (data.get("features_summary", {})
+               .get("page_signals", {})
+               .get("vt_summary"))
+    if vt and vt.get("status") == "success":
+        from app.phishing.virustotal import normalize_vt_summary
+        data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
+
+    html_content = render_template("pdf_report.html", data=data, include_footprint=False)
+    import weasyprint
+    pdf_bytes = weasyprint.HTML(string=html_content, base_url=request.base_url).write_pdf()
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"analysis_report_{analysis_id}.pdf"
+    )
+
+@bp.route("/report/<int:analysis_id>/pdf/footprint")
+def report_pdf_footprint(analysis_id):
+    analysis = db.session.get(Analysis, analysis_id)
+    if not analysis:
+        return render_template("errors/404.html", page_title="Not found"), 404
+    data = serialize_analysis(analysis)
+    vt = (data.get("features_summary", {})
+               .get("page_signals", {})
+               .get("vt_summary"))
+    if vt and vt.get("status") == "success":
+        from app.phishing.virustotal import normalize_vt_summary
+        data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
+
+    html_content = render_template("pdf_report.html", data=data, include_footprint=True)
+    import weasyprint
+    pdf_bytes = weasyprint.HTML(string=html_content, base_url=request.base_url).write_pdf()
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"analysis_report_with_footprint_{analysis_id}.pdf"
+    )
 
 
 @bp.route("/api/report/<int:analysis_id>")

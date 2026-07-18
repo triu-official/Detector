@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Report{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #111827;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      --accent: #1d4ed8;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --suspicious: #d97706;
+      --card-bg: #f9fafb;
+    }
+
+    @page {
+      size: A4;
+      margin: 2cm;
+      @bottom-right {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 9pt;
+        color: #6b7280;
+      }
+    }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10pt;
+      line-height: 1.5;
+      color: var(--text);
+      background-color: var(--bg);
+      margin: 0;
+      padding: 0;
+    }
+
+    h1, h2, h3, h4 {
+      color: var(--text);
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
+      font-weight: 700;
+    }
+
+    h1 {
+      font-size: 20pt;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 5px;
+      margin-top: 0;
+    }
+
+    h2 {
+      font-size: 14pt;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 3px;
+    }
+
+    h3 {
+      font-size: 12pt;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 15px;
+      margin-bottom: 20px;
+      page-break-inside: avoid;
+    }
+
+    .key-value {
+      display: table;
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+    }
+
+    .key-value .row {
+      display: table-row;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .key-value .row:last-child {
+      border-bottom: none;
+    }
+
+    .key-value .key {
+      display: table-cell;
+      font-weight: 600;
+      width: 35%;
+      padding: 6px 0;
+      vertical-align: top;
+    }
+
+    .key-value .value {
+      display: table-cell;
+      padding: 6px 0;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    .bullet-list {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .bullet-list li {
+      margin-bottom: 4px;
+    }
+
+    .score-safe { color: var(--success); font-weight: bold; }
+    .score-suspicious { color: var(--suspicious); font-weight: bold; }
+    .score-phishing { color: var(--danger); font-weight: bold; }
+
+    .mono {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 9pt;
+      background: #f3f4f6;
+      padding: 2px 4px;
+      border-radius: 2px;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 9pt;
+      background: #e5e7eb;
+      color: #374151;
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .footer {
+      margin-top: 30px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      font-size: 8pt;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    /* Page break helpers */
+    .page-break-before { page-break-before: always; }
+    .avoid-break { page-break-inside: avoid; }
+
+  </style>
+</head>
+<body>
+  {% block content %}{% endblock %}
+</body>
+</html>
