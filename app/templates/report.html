@@ -375,7 +375,7 @@
 {% if not (data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary) %}
 <section class="card">
   <h2>VirusTotal Enrichment</h2>
-  <p class="muted">VirusTotal enrichment not enabled. Set VT_ENABLED=true and VT_API_KEY in your .env to activate.</p>
+  <p class="muted"><span class="pill pill-suspicious" style="background: rgba(158, 176, 203, 0.2); color: var(--muted);">Not Available</span> VirusTotal enrichment is not enabled or data is missing.</p>
 </section>
 {% endif %}
 
@@ -435,6 +435,11 @@
   <p class="muted">Safe Browsing lookup failed: {{ sb.message or 'unknown error' }}</p>
 </section>
 {% endif %}
+{% else %}
+<section class="card">
+  <h2>Safe Browsing Enrichment</h2>
+  <p class="muted"><span class="pill pill-suspicious" style="background: rgba(158, 176, 203, 0.2); color: var(--muted);">Not Available</span> Safe Browsing data is missing.</p>
+</section>
 {% endif %}
 
 {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.us_summary %}
@@ -457,6 +462,11 @@
   <p class="muted">urlscan.io lookup failed: {{ us.message or 'unknown error' }}</p>
 </section>
 {% endif %}
+{% else %}
+<section class="card">
+  <h2>Urlscan.io Enrichment</h2>
+  <p class="muted"><span class="pill pill-suspicious" style="background: rgba(158, 176, 203, 0.2); color: var(--muted);">Not Available</span> Urlscan.io data is missing.</p>
+</section>
 {% endif %}
 
 {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.abuseipdb_summary %}
@@ -499,6 +509,11 @@
   <p class="muted">AbuseIPDB lookup failed: {{ ipdb.message or 'unknown error' }}</p>
 </section>
 {% endif %}
+{% else %}
+<section class="card">
+  <h2>AbuseIPDB Enrichment</h2>
+  <p class="muted"><span class="pill pill-suspicious" style="background: rgba(158, 176, 203, 0.2); color: var(--muted);">Not Available</span> AbuseIPDB data is missing.</p>
+</section>
 {% endif %}
 
 {% if data.redirect_chain and data.redirect_chain|length > 1 %}
@@ -549,9 +564,20 @@
   </form>
 </section>
 
-<section class="card action-row">
-  <a href="{{ url_for('phishing.api_report', analysis_id=data.analysis_id) }}" class="ghost-button" download>Export JSON</a>
-  <a href="{{ url_for('phishing.index') }}" class="ghost-button">New Analysis</a>
-  <button id="delete-report" class="ghost-button" style="color: var(--danger);" data-analysis-id="{{ data.analysis_id }}">Delete Report</button>
+<section class="card">
+  <div class="action-row" style="margin-bottom: 0.5rem;">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      <a href="{{ url_for('phishing.report_pdf_standard', analysis_id=data.analysis_id) }}" class="primary-button" download>Download Analysis Report PDF</a>
+      <a href="{{ url_for('phishing.report_pdf_footprint', analysis_id=data.analysis_id) }}" class="ghost-button" download>Download Analysis + Footprint PDF</a>
+    </div>
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      <a href="{{ url_for('phishing.api_report', analysis_id=data.analysis_id) }}" class="ghost-button" download>Export JSON</a>
+      <a href="{{ url_for('phishing.index') }}" class="ghost-button">New Analysis</a>
+      <button id="delete-report" class="ghost-button" style="color: var(--danger);" data-analysis-id="{{ data.analysis_id }}">Delete Report</button>
+    </div>
+  </div>
+  <p class="helper" style="font-size: 0.85em; margin: 0;">
+    <strong>Analysis Report PDF:</strong> concise summary &nbsp;|&nbsp; <strong>Analysis + Footprint PDF:</strong> extended technical intelligence
+  </p>
 </section>
 {% endblock %}
