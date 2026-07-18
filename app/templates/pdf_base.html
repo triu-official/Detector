@@ -4,153 +4,140 @@
   <meta charset="UTF-8">
   <title>{% block title %}Report{% endblock %}</title>
   <style>
-    :root {
-      --bg: #ffffff;
-      --text: #111827;
-      --muted: #4b5563;
-      --border: #e5e7eb;
-      --accent: #1d4ed8;
-      --success: #16a34a;
-      --warning: #d97706;
-      --danger: #dc2626;
-      --suspicious: #d97706;
-      --card-bg: #f9fafb;
-    }
-
     @page {
       size: A4;
       margin: 2cm;
-      @bottom-right {
-        content: "Page " counter(page) " of " counter(pages);
-        font-size: 9pt;
-        color: #6b7280;
-      }
     }
 
     body {
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: Helvetica, Arial, sans-serif;
       font-size: 10pt;
       line-height: 1.5;
-      color: var(--text);
-      background-color: var(--bg);
+      color: #111827;
+      background-color: #ffffff;
       margin: 0;
       padding: 0;
     }
 
-    h1, h2, h3, h4 {
-      color: var(--text);
-      margin-top: 1.5em;
-      margin-bottom: 0.5em;
-      font-weight: 700;
-    }
-
     h1 {
       font-size: 20pt;
-      border-bottom: 2px solid var(--border);
+      font-weight: bold;
+      color: #111827;
+      border-bottom: 2px solid #e5e7eb;
       padding-bottom: 5px;
       margin-top: 0;
+      margin-bottom: 10px;
     }
 
     h2 {
       font-size: 14pt;
-      color: var(--accent);
-      border-bottom: 1px solid var(--border);
+      font-weight: bold;
+      color: #1d4ed8;
+      border-bottom: 1px solid #e5e7eb;
       padding-bottom: 3px;
+      margin-top: 20px;
+      margin-bottom: 8px;
     }
 
     h3 {
       font-size: 12pt;
+      font-weight: bold;
+      margin-top: 15px;
+      margin-bottom: 5px;
     }
 
-    .card {
-      background-color: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 15px;
-      margin-bottom: 20px;
-      page-break-inside: avoid;
-    }
-
-    .key-value {
-      display: table;
+    table.card-table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 10px;
+      margin-bottom: 15px;
     }
 
-    .key-value .row {
-      display: table-row;
-      border-bottom: 1px solid var(--border);
+    table.card-table td {
+      padding: 5px 8px;
+      vertical-align: top;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 10pt;
     }
 
-    .key-value .row:last-child {
+    table.card-table tr:last-child td {
       border-bottom: none;
     }
 
-    .key-value .key {
-      display: table-cell;
-      font-weight: 600;
+    table.card-table td.label {
+      font-weight: bold;
       width: 35%;
-      padding: 6px 0;
-      vertical-align: top;
+      color: #374151;
     }
 
-    .key-value .value {
-      display: table-cell;
-      padding: 6px 0;
-      vertical-align: top;
+    table.card-table td.value {
+      color: #111827;
       word-break: break-word;
     }
 
-    .bullet-list {
-      margin: 0;
+    .card {
+      background-color: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 12px;
+      margin-bottom: 18px;
+    }
+
+    ul.bullet-list {
+      margin: 4px 0;
       padding-left: 20px;
     }
 
-    .bullet-list li {
-      margin-bottom: 4px;
+    ul.bullet-list li {
+      margin-bottom: 3px;
     }
 
-    .score-safe { color: var(--success); font-weight: bold; }
-    .score-suspicious { color: var(--suspicious); font-weight: bold; }
-    .score-phishing { color: var(--danger); font-weight: bold; }
+    .score-safe {
+      color: #16a34a;
+      font-weight: bold;
+    }
+
+    .score-suspicious {
+      color: #d97706;
+      font-weight: bold;
+    }
+
+    .score-phishing {
+      color: #dc2626;
+      font-weight: bold;
+    }
 
     .mono {
       font-family: "Courier New", Courier, monospace;
       font-size: 9pt;
-      background: #f3f4f6;
-      padding: 2px 4px;
-      border-radius: 2px;
     }
 
     .pill {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
+      display: inline;
+      padding: 1px 6px;
       font-size: 9pt;
-      background: #e5e7eb;
+      background-color: #e5e7eb;
       color: #374151;
-      margin-right: 4px;
-      margin-bottom: 4px;
     }
 
     .muted {
-      color: var(--muted);
+      color: #6b7280;
     }
 
     .footer {
       margin-top: 30px;
-      border-top: 1px solid var(--border);
+      border-top: 1px solid #e5e7eb;
       padding-top: 10px;
       font-size: 8pt;
-      color: var(--muted);
+      color: #6b7280;
       text-align: center;
     }
 
-    /* Page break helpers */
-    .page-break-before { page-break-before: always; }
-    .avoid-break { page-break-inside: avoid; }
+    .page-break-before {
+      page-break-before: always;
+    }
 
+    .avoid-break {
+      page-break-inside: avoid;
+    }
   </style>
 </head>
 <body>

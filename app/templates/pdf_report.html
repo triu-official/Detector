@@ -5,71 +5,76 @@
 {% block content %}
 <div class="card">
   <h1>Phishing Analysis Report</h1>
-  <div class="key-value">
-    <div class="row">
-      <div class="key">Target URL</div>
-      <div class="value mono">{{ data.url }}</div>
-    </div>
-    <div class="row">
-      <div class="key">Normalized Domain</div>
-      <div class="value mono">{{ data.domain }}</div>
-    </div>
-    <div class="row">
-      <div class="key">Analysis Timestamp</div>
-      <div class="value">{{ data.created_at }}</div>
-    </div>
-    <div class="row">
-      <div class="key">Final Risk Score</div>
-      <div class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.risk_score }}/100</div>
-    </div>
-    <div class="row">
-      <div class="key">Final Label</div>
-      <div class="value"><span class="pill">{{ data.label | upper }}</span></div>
-    </div>
-  </div>
+  <table class="card-table">
+    <tr>
+      <td class="label">Target URL</td>
+      <td class="value mono">{{ data.url }}</td>
+    </tr>
+    <tr>
+      <td class="label">Normalized Domain</td>
+      <td class="value mono">{{ data.domain }}</td>
+    </tr>
+    <tr>
+      <td class="label">Analysis Timestamp</td>
+      <td class="value">{{ data.created_at }}</td>
+    </tr>
+    <tr>
+      <td class="label">Final Risk Score</td>
+      <td class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.risk_score }}/100</td>
+    </tr>
+    <tr>
+      <td class="label">Final Label</td>
+      <td class="value"><span class="pill">{{ data.label | upper }}</span></td>
+    </tr>
+  </table>
 </div>
 
 <h2>Executive Summary</h2>
 <div class="card">
-  <div class="key-value">
-    {% set fusion = none %}
-    {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment %}
-      {% set fusion = data.features_summary.page_signals.fusion_assessment %}
-      <div class="row">
-        <div class="key">Combined Verdict</div>
-        <div class="value {% if fusion.final_label == 'safe' %}score-safe{% elif fusion.final_label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ fusion.final_label | upper }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Confidence</div>
-        <div class="value">{{ fusion.confidence_level | title }} ({{ fusion.confidence_mode | replace('_', ' ') }})</div>
-      </div>
-    {% elif data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
-      {% set conf = data.features_summary.page_signals.blended_confidence %}
-      <div class="row">
-        <div class="key">Combined Verdict</div>
-        <div class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.label | upper }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Confidence</div>
-        <div class="value">{{ conf.confidence_level | title }} ({{ conf.confidence_reason }})</div>
-      </div>
+  {% set fusion = none %}
+  {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment %}
+    {% set fusion = data.features_summary.page_signals.fusion_assessment %}
+  {% endif %}
+  {% set conf = none %}
+  {% if not fusion and data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
+    {% set conf = data.features_summary.page_signals.blended_confidence %}
+  {% endif %}
+  <table class="card-table">
+    {% if fusion %}
+    <tr>
+      <td class="label">Combined Verdict</td>
+      <td class="value {% if fusion.final_label == 'safe' %}score-safe{% elif fusion.final_label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ fusion.final_label | upper }}</td>
+    </tr>
+    <tr>
+      <td class="label">Confidence</td>
+      <td class="value">{{ fusion.confidence_level | title }} ({{ fusion.confidence_mode | replace('_', ' ') }})</td>
+    </tr>
+    {% elif conf %}
+    <tr>
+      <td class="label">Combined Verdict</td>
+      <td class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.label | upper }}</td>
+    </tr>
+    <tr>
+      <td class="label">Confidence</td>
+      <td class="value">{{ conf.confidence_level | title }} ({{ conf.confidence_reason }})</td>
+    </tr>
     {% endif %}
 
-    <div class="row">
-      <div class="key">Reachability</div>
-      <div class="value">{{ data.reachability | replace('_', ' ') | title }}</div>
-    </div>
+    <tr>
+      <td class="label">Reachability</td>
+      <td class="value">{{ data.reachability | replace('_', ' ') | title }}</td>
+    </tr>
 
     {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.final_url and data.features_summary.page_signals.vt_summary.final_url != data.url %}
-    <div class="row">
-      <div class="key">Final URL</div>
-      <div class="value mono">{{ data.features_summary.page_signals.vt_summary.final_url }}</div>
-    </div>
+    <tr>
+      <td class="label">Final URL</td>
+      <td class="value mono">{{ data.features_summary.page_signals.vt_summary.final_url }}</td>
+    </tr>
     {% endif %}
 
-    <div class="row">
-      <div class="key">Interpretation</div>
-      <div class="value">
+    <tr>
+      <td class="label">Interpretation</td>
+      <td class="value">
         {% if fusion %}
           {{ fusion.confidence_reason }}
         {% elif conf %}
@@ -78,64 +83,64 @@
         {% else %}
           Analysis yielded a {{ data.label }} verdict.
         {% endif %}
-      </div>
-    </div>
-  </div>
+      </td>
+    </tr>
+  </table>
 </div>
 
 <h2>Local Heuristic Analysis</h2>
 <div class="card avoid-break">
-  <div class="key-value">
-    <div class="row">
-      <div class="key">Brand Impersonation Detected</div>
-      <div class="value">
+  <table class="card-table">
+    <tr>
+      <td class="label">Brand Impersonation Detected</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.url_features and data.features_summary.url_features.brand_impersonation %}
           <span class="score-phishing">Yes</span>
           {% if data.features_summary.brand_token_hits %}
-            <br><span class="muted">Tokens: {{ data.features_summary.brand_token_hits | join(', ') }}</span>
+            <br /><span class="muted">Tokens: {{ data.features_summary.brand_token_hits | join(', ') }}</span>
           {% endif %}
         {% else %}
           No
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">Suspicious TLD</div>
-      <div class="value">
+    <tr>
+      <td class="label">Suspicious TLD</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.url_features and data.features_summary.url_features.suspicious_tld %}
           <span class="score-suspicious">Yes</span>
         {% else %}
           No
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">Domain Age Bucket</div>
-      <div class="value">
+    <tr>
+      <td class="label">Domain Age Bucket</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.domain_info and data.features_summary.domain_info.domain_age_bucket %}
           {{ data.features_summary.domain_info.domain_age_bucket }}
         {% else %}
           Unknown
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">Domain Age in Days</div>
-      <div class="value">
+    <tr>
+      <td class="label">Domain Age in Days</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.domain_age_days is not none %}
           {{ data.features_summary.domain_age_days | int }} days
         {% else %}
           Unknown
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">DNS / MX Anomalies</div>
-      <div class="value">
+    <tr>
+      <td class="label">DNS / MX Anomalies</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.domain_info and data.features_summary.domain_info.mx_records is defined %}
           {% if data.features_summary.domain_info.mx_records == [] or data.features_summary.domain_info.mx_records == none %}
             <span class="score-suspicious">No MX Records</span>
@@ -145,12 +150,12 @@
         {% else %}
           Not Checked
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">SSL / Trust Observations</div>
-      <div class="value">
+    <tr>
+      <td class="label">SSL / Trust Observations</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.cert_valid is not none %}
           {% if data.features_summary.page_signals.cert_valid %}
             Valid Certificate
@@ -160,12 +165,12 @@
         {% else %}
           Unknown
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">Page Content Observations</div>
-      <div class="value">
+    <tr>
+      <td class="label">Page Content Observations</td>
+      <td class="value">
         {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.binary_response %}
            <span class="score-suspicious">Binary Response</span>
         {% elif data.features_summary and data.features_summary.page_signals %}
@@ -173,206 +178,204 @@
         {% else %}
            Unknown
         {% endif %}
-      </div>
-    </div>
+      </td>
+    </tr>
 
-    <div class="row">
-      <div class="key">Redirect Behavior Observed</div>
-      <div class="value">
+    <tr>
+      <td class="label">Redirect Behavior Observed</td>
+      <td class="value">
         {% if data.redirect_chain and data.redirect_chain|length > 1 %}
            Yes ({{ data.redirect_chain|length - 1 }} hops)
         {% else %}
            No
         {% endif %}
-      </div>
-    </div>
-  </div>
+      </td>
+    </tr>
+  </table>
 
-  <div style="margin-top: 15px;">
+  <div style="margin-top: 10px;">
     <strong>Top Local Risk Reasons</strong>
     {% if data.reasons %}
-      <ul class="bullet-list" style="margin-top: 5px;">
+      <ul class="bullet-list">
         {% for reason in data.reasons[:6] %}
           <li>{{ reason }}</li>
         {% endfor %}
       </ul>
     {% else %}
-      <div class="muted">No significant risk reasons observed.</div>
+      <p class="muted">No significant risk reasons observed.</p>
     {% endif %}
   </div>
 </div>
 
 <h2>Domain / WHOIS Context</h2>
 <div class="card avoid-break">
-  <div class="key-value">
-    {% set dinfo = none %}
-    {% if data.features_summary and data.features_summary.domain_info %}
-      {% set dinfo = data.features_summary.domain_info %}
-
-      <div class="row">
-        <div class="key">Registered On</div>
-        <div class="value">{{ dinfo.creation_date or 'Unknown' }}</div>
-      </div>
-
-      <div class="row">
-        <div class="key">Expires On</div>
-        <div class="value">{{ dinfo.expiration_date or 'Unknown' }}</div>
-      </div>
-
-      <div class="row">
-        <div class="key">Registrar</div>
-        <div class="value">{{ dinfo.registrar or 'Unknown' }}</div>
-      </div>
-
-      <div class="row">
-        <div class="key">Name Servers</div>
-        <div class="value">
-          {% if dinfo.name_servers %}
-            {{ dinfo.name_servers | join(', ') }}
-          {% else %}
-            Unknown
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="key">WHOIS Availability</div>
-        <div class="value">{{ 'Available' if dinfo.creation_date else 'Not Available' }}</div>
-      </div>
-
-      {% if dinfo.domain_trust %}
-      <div class="row">
-        <div class="key">Domain Trust Interpretation</div>
-        <div class="value {% if dinfo.domain_trust.verdict == 'suspicious' %}score-suspicious{% elif dinfo.domain_trust.verdict == 'malicious' %}score-phishing{% else %}score-safe{% endif %}">
-          {{ dinfo.domain_trust.verdict | title }} ({{ dinfo.domain_trust.severity | title }} Severity)
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="key">Structural Domain Risk Summary</div>
-        <div class="value">{{ dinfo.domain_trust.reason }}</div>
-      </div>
-      {% endif %}
-
-    {% else %}
-      <div class="row"><div class="key">Data</div><div class="value muted">Not available</div></div>
+  {% set dinfo = none %}
+  {% if data.features_summary and data.features_summary.domain_info %}
+    {% set dinfo = data.features_summary.domain_info %}
+  {% endif %}
+  {% if dinfo %}
+  <table class="card-table">
+    <tr>
+      <td class="label">Registered On</td>
+      <td class="value">{{ dinfo.creation_date or 'Unknown' }}</td>
+    </tr>
+    <tr>
+      <td class="label">Expires On</td>
+      <td class="value">{{ dinfo.expiration_date or 'Unknown' }}</td>
+    </tr>
+    <tr>
+      <td class="label">Registrar</td>
+      <td class="value">{{ dinfo.registrar or 'Unknown' }}</td>
+    </tr>
+    <tr>
+      <td class="label">Name Servers</td>
+      <td class="value">
+        {% if dinfo.name_servers %}
+          {{ dinfo.name_servers | join(', ') }}
+        {% else %}
+          Unknown
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <td class="label">WHOIS Availability</td>
+      <td class="value">{{ 'Available' if dinfo.creation_date else 'Not Available' }}</td>
+    </tr>
+    {% if dinfo.domain_trust %}
+    <tr>
+      <td class="label">Domain Trust Interpretation</td>
+      <td class="value {% if dinfo.domain_trust.verdict == 'suspicious' %}score-suspicious{% elif dinfo.domain_trust.verdict == 'malicious' %}score-phishing{% else %}score-safe{% endif %}">
+        {{ dinfo.domain_trust.verdict | title }} ({{ dinfo.domain_trust.severity | title }} Severity)
+      </td>
+    </tr>
+    <tr>
+      <td class="label">Structural Domain Risk Summary</td>
+      <td class="value">{{ dinfo.domain_trust.reason }}</td>
+    </tr>
     {% endif %}
-  </div>
+  </table>
+  {% else %}
+  <p class="muted">WHOIS data not available for this domain.</p>
+  {% endif %}
 </div>
 
 <h2>Combined Verdict</h2>
 <div class="card avoid-break">
-  <div class="key-value">
-    {% if fusion %}
-      <div class="row">
-        <div class="key">Base Local Risk Contribution</div>
-        <div class="value">{{ fusion.local_risk_score }}/100</div>
-      </div>
-      <div class="row">
-        <div class="key">Domain Structural Contribution</div>
-        <div class="value">+{{ fusion.domain_risk_score }}</div>
-      </div>
-      <div class="row">
-        <div class="key">External Corroboration Contribution</div>
-        <div class="value">+{{ fusion.external_risk_score }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Positive Trust Offset</div>
-        <div class="value score-safe">-{{ fusion.positive_trust_offset }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Final Score</div>
-        <div class="value">{{ fusion.final_risk_score }}/100</div>
-      </div>
-      <div class="row">
-        <div class="key">Final Label</div>
-        <div class="value {% if fusion.final_label == 'safe' %}score-safe{% elif fusion.final_label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ fusion.final_label | upper }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Confidence Mode</div>
-        <div class="value">{{ fusion.confidence_mode | replace('_', ' ') | title }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Confidence Reason</div>
-        <div class="value">{{ fusion.confidence_reason }}</div>
-      </div>
-    {% elif conf %}
-      <div class="row">
-        <div class="key">Local Score</div>
-        <div class="value">{{ data.risk_score }}/100</div>
-      </div>
-      <div class="row">
-        <div class="key">Final Label</div>
-        <div class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.label | upper }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Confidence</div>
-        <div class="value">{{ conf.confidence_level | title }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Confidence Reason</div>
-        <div class="value">{{ conf.confidence_reason }}</div>
-      </div>
-    {% else %}
-      <div class="row">
-        <div class="key">Final Score</div>
-        <div class="value">{{ data.risk_score }}/100</div>
-      </div>
-      <div class="row">
-        <div class="key">Final Label</div>
-        <div class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.label | upper }}</div>
-      </div>
-    {% endif %}
-  </div>
+  {% if fusion %}
+  <table class="card-table">
+    <tr>
+      <td class="label">Base Local Risk Contribution</td>
+      <td class="value">{{ fusion.local_risk_score }}/100</td>
+    </tr>
+    <tr>
+      <td class="label">Domain Structural Contribution</td>
+      <td class="value">+{{ fusion.domain_risk_score }}</td>
+    </tr>
+    <tr>
+      <td class="label">External Corroboration Contribution</td>
+      <td class="value">+{{ fusion.external_risk_score }}</td>
+    </tr>
+    <tr>
+      <td class="label">Positive Trust Offset</td>
+      <td class="value score-safe">-{{ fusion.positive_trust_offset }}</td>
+    </tr>
+    <tr>
+      <td class="label">Final Score</td>
+      <td class="value">{{ fusion.final_risk_score }}/100</td>
+    </tr>
+    <tr>
+      <td class="label">Final Label</td>
+      <td class="value {% if fusion.final_label == 'safe' %}score-safe{% elif fusion.final_label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ fusion.final_label | upper }}</td>
+    </tr>
+    <tr>
+      <td class="label">Confidence Mode</td>
+      <td class="value">{{ fusion.confidence_mode | replace('_', ' ') | title }}</td>
+    </tr>
+    <tr>
+      <td class="label">Confidence Reason</td>
+      <td class="value">{{ fusion.confidence_reason }}</td>
+    </tr>
+  </table>
+  {% elif conf %}
+  <table class="card-table">
+    <tr>
+      <td class="label">Local Score</td>
+      <td class="value">{{ data.risk_score }}/100</td>
+    </tr>
+    <tr>
+      <td class="label">Final Label</td>
+      <td class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.label | upper }}</td>
+    </tr>
+    <tr>
+      <td class="label">Confidence</td>
+      <td class="value">{{ conf.confidence_level | title }}</td>
+    </tr>
+    <tr>
+      <td class="label">Confidence Reason</td>
+      <td class="value">{{ conf.confidence_reason }}</td>
+    </tr>
+  </table>
+  {% else %}
+  <table class="card-table">
+    <tr>
+      <td class="label">Final Score</td>
+      <td class="value">{{ data.risk_score }}/100</td>
+    </tr>
+    <tr>
+      <td class="label">Final Label</td>
+      <td class="value {% if data.label == 'safe' %}score-safe{% elif data.label == 'suspicious' %}score-suspicious{% else %}score-phishing{% endif %}">{{ data.label | upper }}</td>
+    </tr>
+  </table>
+  {% endif %}
 </div>
 
 <h2>Analyst View</h2>
 <div class="card avoid-break">
   {% if fusion and fusion.contributing_factors %}
-    <div style="margin-bottom: 10px;">
-      <strong>Contributing Factors:</strong>
-      <ul class="bullet-list">
-        {% for factor in fusion.contributing_factors %}
-          <li>{{ factor }}</li>
-        {% endfor %}
-      </ul>
-    </div>
+  <div style="margin-bottom: 10px;">
+    <strong>Contributing Factors:</strong>
+    <ul class="bullet-list">
+      {% for factor in fusion.contributing_factors %}
+        <li>{{ factor }}</li>
+      {% endfor %}
+    </ul>
+  </div>
   {% endif %}
 
   {% if fusion and fusion.mitigating_factors %}
-    <div style="margin-bottom: 10px;">
-      <strong>Mitigating Factors:</strong>
-      <ul class="bullet-list">
-        {% for factor in fusion.mitigating_factors %}
-          <li class="score-safe">{{ factor }}</li>
-        {% endfor %}
-      </ul>
-    </div>
+  <div style="margin-bottom: 10px;">
+    <strong>Mitigating Factors:</strong>
+    <ul class="bullet-list">
+      {% for factor in fusion.mitigating_factors %}
+        <li class="score-safe">{{ factor }}</li>
+      {% endfor %}
+    </ul>
+  </div>
   {% endif %}
 
-  <div class="key-value" style="margin-top: 10px;">
-    <div class="row">
-      <div class="key">Recommended Caution Level</div>
-      <div class="value">
+  <table class="card-table">
+    <tr>
+      <td class="label">Recommended Caution Level</td>
+      <td class="value">
         {% if data.label == 'safe' %}Low{% elif data.label == 'suspicious' %}Moderate{% else %}High{% endif %}
-      </div>
-    </div>
-    <div class="row">
-      <div class="key">Professional Interpretation</div>
-      <div class="value">
+      </td>
+    </tr>
+    <tr>
+      <td class="label">Professional Interpretation</td>
+      <td class="value">
         The domain exhibits {% if data.label == 'safe' %}minimal{% elif data.label == 'suspicious' %}several{% else %}significant{% endif %} signs of phishing risk.
         {% if fusion %}
           {{ fusion.confidence_reason }} The base local heuristic signals are {% if fusion.local_risk_score > 50 %}strong{% else %}mild{% endif %}.
         {% else %}
           Use caution before providing sensitive information.
         {% endif %}
-      </div>
-    </div>
-  </div>
+      </td>
+    </tr>
+  </table>
 </div>
 
-<div class="footer avoid-break">
-  Report generated on {{ data.created_at }}<br>
+<div class="footer">
+  Report generated on {{ data.created_at }}<br />
   <em>Absence of external detections does not guarantee safety.</em>
 </div>
 
@@ -386,10 +389,10 @@
 
   <h2>VirusTotal Overview</h2>
   <div class="card avoid-break">
-    <div class="key-value">
-      <div class="row">
-        <div class="key">Availability</div>
-        <div class="value">
+    <table class="card-table">
+      <tr>
+        <td class="label">Availability</td>
+        <td class="value">
           {% if vt and vt.status == 'success' %}
             Available
           {% elif vt and vt.status == 'not_found' %}
@@ -399,94 +402,92 @@
           {% else %}
             Not Configured
           {% endif %}
-        </div>
-      </div>
+        </td>
+      </tr>
 
       {% if vt and vt.status == 'success' %}
-        <div class="row">
-          <div class="key">Status</div>
-          <div class="value">{% if vt.cached %}Cached{% else %}Fetched Fresh{% endif %}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Combined VT Signal</div>
-          <div class="value">
-            {% if vt.verdict %}
-              <span class="{% if vt.stats.malicious_count > 0 %}score-phishing{% elif vt.stats.suspicious_count > 0 %}score-suspicious{% else %}score-safe{% endif %}">
-                {{ vt.verdict.detection_verdict | title }}
-              </span>
-            {% else %}
-              Unknown
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="key">Overall VT Interpretation</div>
-          <div class="value">
-            {% if vt.verdict %}
-              {{ vt.verdict.category_context }} / {{ vt.verdict.reputation_context }}
-            {% else %}
-              No distinct reputation identified.
-            {% endif %}
-          </div>
-        </div>
+      <tr>
+        <td class="label">Status</td>
+        <td class="value">{% if vt.cached %}Cached{% else %}Fetched Fresh{% endif %}</td>
+      </tr>
+      <tr>
+        <td class="label">Combined VT Signal</td>
+        <td class="value">
+          {% if vt.verdict %}
+            <span class="{% if vt.stats.malicious_count > 0 %}score-phishing{% elif vt.stats.suspicious_count > 0 %}score-suspicious{% else %}score-safe{% endif %}">
+              {{ vt.verdict.detection_verdict | title }}
+            </span>
+          {% else %}
+            Unknown
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td class="label">Overall VT Interpretation</td>
+        <td class="value">
+          {% if vt.verdict %}
+            {{ vt.verdict.category_context }} / {{ vt.verdict.reputation_context }}
+          {% else %}
+            No distinct reputation identified.
+          {% endif %}
+        </td>
+      </tr>
       {% endif %}
-    </div>
-
-    <div class="muted" style="margin-top: 10px; font-size: 0.9em;">
-      <em>Note: VirusTotal context may include classification and reputation data that is not equivalent to confirmed malicious detection.</em>
-    </div>
+    </table>
+    <p class="muted" style="font-size: 9pt; margin-top: 8px;"><em>Note: VirusTotal context may include classification and reputation data that is not equivalent to confirmed malicious detection.</em></p>
   </div>
 
   {% if vt and vt.status == 'success' %}
     <h2>VirusTotal URL Report</h2>
     <div class="card avoid-break">
-      <div class="key-value">
-        <div class="row">
-          <div class="key">Detection Counts</div>
-          <div class="value">
+      <table class="card-table">
+        <tr>
+          <td class="label">Detection Counts</td>
+          <td class="value">
             <span class="score-phishing">{{ vt.stats.malicious_count }} Malicious</span>,
             <span class="score-suspicious">{{ vt.stats.suspicious_count }} Suspicious</span>,
             <span class="score-safe">{{ vt.stats.harmless_count }} Harmless</span>,
             {{ vt.stats.undetected_count }} Undetected
             {% if vt.stats.timeout_count %}, {{ vt.stats.timeout_count }} Timeout{% endif %}
             (Total Engines: {{ vt.stats.total_engines }})
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="key">Reputation</div>
-          <div class="value">{{ vt.reputation }}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Community Votes</div>
-          <div class="value">
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Reputation</td>
+          <td class="value">{{ vt.reputation }}</td>
+        </tr>
+        <tr>
+          <td class="label">Community Votes</td>
+          <td class="value">
             {% if vt.votes %}
-              <span class="score-safe">Harmless: {{ vt.votes.harmless }}</span>, <span class="score-phishing">Malicious: {{ vt.votes.malicious }}</span>
+              <span class="score-safe">Harmless: {{ vt.votes.harmless }}</span>,
+              <span class="score-phishing">Malicious: {{ vt.votes.malicious }}</span>
             {% else %}
               None
             {% endif %}
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="key">Categories</div>
-          <div class="value">
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Categories</td>
+          <td class="value">
             {% if vt.categories %}
-              {% for cat in vt.categories %}
-                <span class="pill">{{ cat }}</span>
-              {% endfor %}
+              {% if vt.categories is mapping %}
+                {% for k, v in vt.categories.items() %}
+                  <span class="pill">{{ k }}: {{ v }}</span>
+                {% endfor %}
+              {% else %}
+                {% for cat in vt.categories %}
+                  <span class="pill">{{ cat }}</span>
+                {% endfor %}
+              {% endif %}
             {% else %}
               <span class="muted">None</span>
             {% endif %}
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="key">Tags</div>
-          <div class="value">
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Tags</td>
+          <td class="value">
             {% if vt.tags %}
               {% for tag in vt.tags %}
                 <span class="pill">{{ tag }}</span>
@@ -494,32 +495,27 @@
             {% else %}
               <span class="muted">None</span>
             {% endif %}
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="key">First Submission Date</div>
-          <div class="value">{{ vt.dates.first_submission_date or 'Unknown' }}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Last Submission Date</div>
-          <div class="value">{{ vt.dates.last_submission_date or 'Unknown' }}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Last Analysis Date</div>
-          <div class="value">{{ vt.dates.last_analysis_date or 'Unknown' }}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Final URL</div>
-          <div class="value mono">{{ vt.final_url or 'N/A' }}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Redirect Chain</div>
-          <div class="value">
+          </td>
+        </tr>
+        <tr>
+          <td class="label">First Submission Date</td>
+          <td class="value">{{ vt.dates.first_submission_date or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Last Submission Date</td>
+          <td class="value">{{ vt.dates.last_submission_date or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Last Analysis Date</td>
+          <td class="value">{{ vt.dates.last_analysis_date or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Final URL</td>
+          <td class="value mono">{{ vt.final_url or 'N/A' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Redirect Chain</td>
+          <td class="value">
             {% if vt.redirection_chain %}
               <ul class="bullet-list">
                 {% for r in vt.redirection_chain %}
@@ -529,68 +525,67 @@
             {% else %}
               None
             {% endif %}
-          </div>
-        </div>
-
+          </td>
+        </tr>
         {% if vt.http_response %}
-          <div class="row">
-            <div class="key">HTTP Status Code</div>
-            <div class="value">{{ vt.http_response.status_code or 'Unknown' }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Response Content Length</div>
-            <div class="value">
-              {% if vt.http_response.content_length %}
-                {{ vt.http_response.content_length }} bytes
-              {% else %}
-                Unknown
-              {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Response Content SHA-256</div>
-            <div class="value mono">{{ vt.http_response.content_sha256 or 'N/A' }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Curated Response Headers</div>
-            <div class="value">
-              {% if vt.http_response.headers %}
-                <ul class="bullet-list">
-                  {% for k, v in vt.http_response.headers.items() %}
-                    <li><strong>{{ k }}:</strong> {{ v }}</li>
-                  {% endfor %}
-                </ul>
-              {% else %}
-                None
-              {% endif %}
-            </div>
-          </div>
+        <tr>
+          <td class="label">HTTP Status Code</td>
+          <td class="value">{{ vt.http_response.status_code or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Response Content Length</td>
+          <td class="value">
+            {% if vt.http_response.content_length %}
+              {{ vt.http_response.content_length }} bytes
+            {% else %}
+              Unknown
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Response Content SHA-256</td>
+          <td class="value mono">{{ vt.http_response.content_sha256 or 'N/A' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Curated Response Headers</td>
+          <td class="value">
+            {% if vt.http_response.headers %}
+              <ul class="bullet-list">
+                {% for k, v in vt.http_response.headers.items() %}
+                  <li><strong>{{ k }}:</strong> {{ v }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
         {% endif %}
 
         {% if vt.html_info %}
-          <div class="row">
-            <div class="key">HTML Title</div>
-            <div class="value">{{ vt.html_info.title or 'N/A' }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Curated Meta Tags</div>
-            <div class="value">
-              {% if vt.html_info.meta %}
-                <ul class="bullet-list">
-                  {% for k, v in vt.html_info.meta.items() %}
-                    <li><strong>{{ k }}:</strong> {{ v }}</li>
-                  {% endfor %}
-                </ul>
-              {% else %}
-                None
-              {% endif %}
-            </div>
-          </div>
+        <tr>
+          <td class="label">HTML Title</td>
+          <td class="value">{{ vt.html_info.title or 'N/A' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Curated Meta Tags</td>
+          <td class="value">
+            {% if vt.html_info.meta %}
+              <ul class="bullet-list">
+                {% for k, v in vt.html_info.meta.items() %}
+                  <li><strong>{{ k }}:</strong> {{ v }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
         {% endif %}
 
-        <div class="row">
-          <div class="key">Top Flagged Engine Hits</div>
-          <div class="value">
+        <tr>
+          <td class="label">Top Flagged Engine Hits</td>
+          <td class="value">
             {% if vt.top_engine_hits %}
               <ul class="bullet-list">
                 {% for hit in vt.top_engine_hits %}
@@ -600,65 +595,69 @@
             {% else %}
               None
             {% endif %}
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="key">Additional Flagged Engines Count</div>
-          <div class="value">{{ vt.additional_flagged_engines or 0 }}</div>
-        </div>
-
-        <div class="row">
-          <div class="key">Permalink</div>
-          <div class="value"><a href="{{ vt.permalink }}" style="color: var(--accent);">{{ vt.permalink }}</a></div>
-        </div>
-      </div>
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Additional Flagged Engines Count</td>
+          <td class="value">{{ vt.additional_flagged_engines or 0 }}</td>
+        </tr>
+        <tr>
+          <td class="label">Permalink</td>
+          <td class="value mono">{{ vt.permalink }}</td>
+        </tr>
+      </table>
     </div>
 
     {% if vt.domain_report and vt.domain_report.status == 'success' %}
       <h2>VirusTotal Domain Report</h2>
       <div class="card avoid-break">
-        <div class="key-value">
-          <div class="row">
-            <div class="key">Domain Reputation</div>
-            <div class="value">{{ vt.domain_report.reputation }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Domain Categories</div>
-            <div class="value">
+        <table class="card-table">
+          <tr>
+            <td class="label">Domain Reputation</td>
+            <td class="value">{{ vt.domain_report.reputation }}</td>
+          </tr>
+          <tr>
+            <td class="label">Domain Categories</td>
+            <td class="value">
               {% if vt.domain_report.categories %}
-                {% for k, v in vt.domain_report.categories.items() %}
-                  <span class="pill">{{ k }}: {{ v }}</span>
-                {% endfor %}
+                {% if vt.domain_report.categories is mapping %}
+                  {% for k, v in vt.domain_report.categories.items() %}
+                    <span class="pill">{{ k }}: {{ v }}</span>
+                  {% endfor %}
+                {% else %}
+                  {% for cat in vt.domain_report.categories %}
+                    <span class="pill">{{ cat }}</span>
+                  {% endfor %}
+                {% endif %}
               {% else %}
                 None
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Domain Votes</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Domain Votes</td>
+            <td class="value">
               {% if vt.domain_report.votes %}
-                 Harmless: {{ vt.domain_report.votes.harmless }}, Malicious: {{ vt.domain_report.votes.malicious }}
+                Harmless: {{ vt.domain_report.votes.harmless }}, Malicious: {{ vt.domain_report.votes.malicious }}
               {% else %}
-                 None
+                None
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Domain Analysis Stats</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Domain Analysis Stats</td>
+            <td class="value">
               {% set dstats = vt.domain_report.last_analysis_stats %}
               {% if dstats %}
                 Malicious: {{ dstats.malicious }}, Suspicious: {{ dstats.suspicious }}, Harmless: {{ dstats.harmless }}, Undetected: {{ dstats.undetected }}
               {% else %}
                 Unknown
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Domain Tags</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Domain Tags</td>
+            <td class="value">
               {% if vt.domain_report.tags %}
                 {% for t in vt.domain_report.tags %}
                   <span class="pill">{{ t }}</span>
@@ -666,80 +665,80 @@
               {% else %}
                 None
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Resolved IPs</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Resolved IPs</td>
+            <td class="value">
               {% if vt.domain_report.resolved_ips %}
                 {{ vt.domain_report.resolved_ips | join(', ') }}
               {% else %}
                 None
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Domain-level VT Interpretation</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Domain-level VT Interpretation</td>
+            <td class="value">
               {% if dstats and (dstats.malicious > 0 or dstats.suspicious > 0) %}
                 <span class="score-suspicious">Flagged by some engines.</span>
               {% else %}
                 Generally clean on domain level.
               {% endif %}
-            </div>
-          </div>
-        </div>
+            </td>
+          </tr>
+        </table>
       </div>
     {% endif %}
 
     {% if vt.ip_report and vt.ip_report.status == 'success' %}
       <h2>VirusTotal IP Report</h2>
       <div class="card avoid-break">
-        <div class="key-value">
-          <div class="row">
-            <div class="key">IP Address</div>
-            <div class="value mono">{{ vt.ip_report.ipAddress or vt.ip_report.resolved_ip }}</div>
-          </div>
-          <div class="row">
-            <div class="key">ASN / AS Owner</div>
-            <div class="value">{{ vt.ip_report.asn or 'N/A' }} - {{ vt.ip_report.as_owner or 'N/A' }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Network / CIDR</div>
-            <div class="value">{{ vt.ip_report.network or 'N/A' }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Country / Regional Context</div>
-            <div class="value">{{ vt.ip_report.country or 'Unknown' }} {{ '(' ~ vt.ip_report.continent ~ ')' if vt.ip_report.continent else '' }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Reputation</div>
-            <div class="value">{{ vt.ip_report.reputation }}</div>
-          </div>
-          <div class="row">
-            <div class="key">Total Votes</div>
-            <div class="value">
+        <table class="card-table">
+          <tr>
+            <td class="label">IP Address</td>
+            <td class="value mono">{{ vt.ip_report.ipAddress or vt.ip_report.resolved_ip }}</td>
+          </tr>
+          <tr>
+            <td class="label">ASN / AS Owner</td>
+            <td class="value">{{ vt.ip_report.asn or 'N/A' }} - {{ vt.ip_report.as_owner or 'N/A' }}</td>
+          </tr>
+          <tr>
+            <td class="label">Network / CIDR</td>
+            <td class="value">{{ vt.ip_report.network or 'N/A' }}</td>
+          </tr>
+          <tr>
+            <td class="label">Country / Regional Context</td>
+            <td class="value">{{ vt.ip_report.country or 'Unknown' }} {{ '(' ~ vt.ip_report.continent ~ ')' if vt.ip_report.continent else '' }}</td>
+          </tr>
+          <tr>
+            <td class="label">Reputation</td>
+            <td class="value">{{ vt.ip_report.reputation }}</td>
+          </tr>
+          <tr>
+            <td class="label">Total Votes</td>
+            <td class="value">
               {% if vt.ip_report.votes %}
                 Harmless: {{ vt.ip_report.votes.harmless }}, Malicious: {{ vt.ip_report.votes.malicious }}
               {% else %}
                 None
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Analysis Stats</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Analysis Stats</td>
+            <td class="value">
               {% set istats = vt.ip_report.last_analysis_stats %}
               {% if istats %}
                 Malicious: {{ istats.malicious }}, Suspicious: {{ istats.suspicious }}, Harmless: {{ istats.harmless }}, Undetected: {{ istats.undetected }}
               {% else %}
                 Unknown
               {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Tags</div>
-            <div class="value">
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Tags</td>
+            <td class="value">
               {% if vt.ip_report.tags %}
                 {% for t in vt.ip_report.tags %}
                   <span class="pill">{{ t }}</span>
@@ -747,28 +746,28 @@
               {% else %}
                 None
               {% endif %}
-            </div>
-          </div>
+            </td>
+          </tr>
           {% if vt.ip_report.cert_subject or vt.ip_report.cert_issuer %}
-          <div class="row">
-            <div class="key">Curated Certificate Facts</div>
-            <div class="value">
-              {% if vt.ip_report.cert_subject %}<strong>Subject:</strong> {{ vt.ip_report.cert_subject }}<br>{% endif %}
+          <tr>
+            <td class="label">Curated Certificate Facts</td>
+            <td class="value">
+              {% if vt.ip_report.cert_subject %}<strong>Subject:</strong> {{ vt.ip_report.cert_subject }}<br />{% endif %}
               {% if vt.ip_report.cert_issuer %}<strong>Issuer:</strong> {{ vt.ip_report.cert_issuer }}{% endif %}
-            </div>
-          </div>
+            </td>
+          </tr>
           {% endif %}
-          <div class="row">
-            <div class="key">IP-level VT Interpretation</div>
-            <div class="value">
+          <tr>
+            <td class="label">IP-level VT Interpretation</td>
+            <td class="value">
               {% if istats and (istats.malicious > 0 or istats.suspicious > 0) %}
                 <span class="score-suspicious">Flagged by some engines.</span>
               {% else %}
                 Generally clean on IP level.
               {% endif %}
-            </div>
-          </div>
-        </div>
+            </td>
+          </tr>
+        </table>
       </div>
     {% endif %}
 
@@ -777,140 +776,243 @@
   {% if sb and sb.status == 'success' %}
     <h2>Google Safe Browsing</h2>
     <div class="card avoid-break">
-      <div class="key-value">
-        <div class="row">
-          <div class="key">Availability</div>
-          <div class="value">Available</div>
-        </div>
-        <div class="row">
-          <div class="key">Threats Found</div>
-          <div class="value {% if sb.no_threats_found %}score-safe{% else %}score-phishing{% endif %}">{{ 'No' if sb.no_threats_found else 'Yes' }}</div>
-        </div>
+      <table class="card-table">
+        <tr>
+          <td class="label">Availability</td>
+          <td class="value">Available</td>
+        </tr>
+        <tr>
+          <td class="label">Threats Found</td>
+          <td class="value {% if sb.no_threats_found %}score-safe{% else %}score-phishing{% endif %}">{{ 'No' if sb.no_threats_found else 'Yes' }}</td>
+        </tr>
         {% if not sb.no_threats_found %}
-          <div class="row">
-            <div class="key">Threat Types</div>
-            <div class="value">
-              {% if sb.threat_types %}
-                {{ sb.threat_types | join(', ') }}
-              {% else %}
-                None
-              {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Platform Types</div>
-            <div class="value">
-              {% if sb.platforms_flagged %}
-                {{ sb.platforms_flagged | join(', ') }}
-              {% else %}
-                None
-              {% endif %}
-            </div>
-          </div>
-          <div class="row">
-            <div class="key">Curated Matches</div>
-            <div class="value">
-              {% if sb.matches %}
-                <ul class="bullet-list">
-                  {% for m in sb.matches %}
-                    <li>{{ m.threatEntryType }}: <span class="mono">{{ m.url }}</span></li>
-                  {% endfor %}
-                </ul>
-              {% else %}
-                None
-              {% endif %}
-            </div>
-          </div>
+        <tr>
+          <td class="label">Threat Types</td>
+          <td class="value">
+            {% if sb.threat_types %}
+              {{ sb.threat_types | join(', ') }}
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Platform Types</td>
+          <td class="value">
+            {% if sb.platforms_flagged %}
+              {{ sb.platforms_flagged | join(', ') }}
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Curated Matches</td>
+          <td class="value">
+            {% if sb.matches %}
+              <ul class="bullet-list">
+                {% for m in sb.matches %}
+                  <li>{{ m.threatEntryType }}: <span class="mono">{{ m.url }}</span></li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
         {% endif %}
-        <div class="row">
-          <div class="key">Verdict</div>
-          <div class="value">{{ 'Clean' if sb.no_threats_found else 'Flagged' }}</div>
-        </div>
-      </div>
+        <tr>
+          <td class="label">Verdict</td>
+          <td class="value">{{ 'Clean' if sb.no_threats_found else 'Flagged' }}</td>
+        </tr>
+      </table>
     </div>
   {% endif %}
 
   {% if ipdb and ipdb.status == 'success' %}
     <h2>AbuseIPDB</h2>
     <div class="card avoid-break">
-      <div class="key-value">
-        <div class="row">
-          <div class="key">Availability</div>
-          <div class="value">Available</div>
-        </div>
-        <div class="row">
-          <div class="key">Resolved IP</div>
-          <div class="value mono">{{ ipdb.ipAddress }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Abuse Confidence Score</div>
-          <div class="value {% if ipdb.abuseConfidenceScore > 50 %}score-phishing{% elif ipdb.abuseConfidenceScore > 0 %}score-suspicious{% else %}score-safe{% endif %}">
+      <table class="card-table">
+        <tr>
+          <td class="label">Availability</td>
+          <td class="value">Available</td>
+        </tr>
+        <tr>
+          <td class="label">Resolved IP</td>
+          <td class="value mono">{{ ipdb.ipAddress }}</td>
+        </tr>
+        <tr>
+          <td class="label">Abuse Confidence Score</td>
+          <td class="value {% if ipdb.abuseConfidenceScore > 50 %}score-phishing{% elif ipdb.abuseConfidenceScore > 0 %}score-suspicious{% else %}score-safe{% endif %}">
             {{ ipdb.abuseConfidenceScore }}%
-          </div>
-        </div>
-        <div class="row">
-          <div class="key">Verdict Band</div>
-          <div class="value">{{ ipdb.verdict_band }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Total Reports</div>
-          <div class="value">{{ ipdb.totalReports }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Distinct Users</div>
-          <div class="value">{{ ipdb.numDistinctUsers }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Last Reported At</div>
-          <div class="value">{{ ipdb.lastReportedAt or 'Never' }}</div>
-        </div>
-        <div class="row">
-          <div class="key">ISP</div>
-          <div class="value">{{ ipdb.isp or 'Unknown' }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Usage Type</div>
-          <div class="value">{{ ipdb.usageType or 'Unknown' }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Country Code</div>
-          <div class="value">{{ ipdb.countryCode or 'Unknown' }}</div>
-        </div>
-        <div class="row">
-          <div class="key">Is Tor / Whitelisted / Public</div>
-          <div class="value">
+          </td>
+        </tr>
+        <tr>
+          <td class="label">Verdict Band</td>
+          <td class="value">{{ ipdb.verdict_band }}</td>
+        </tr>
+        <tr>
+          <td class="label">Total Reports</td>
+          <td class="value">{{ ipdb.totalReports }}</td>
+        </tr>
+        <tr>
+          <td class="label">Distinct Users</td>
+          <td class="value">{{ ipdb.numDistinctUsers }}</td>
+        </tr>
+        <tr>
+          <td class="label">Last Reported At</td>
+          <td class="value">{{ ipdb.lastReportedAt or 'Never' }}</td>
+        </tr>
+        <tr>
+          <td class="label">ISP</td>
+          <td class="value">{{ ipdb.isp or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Usage Type</td>
+          <td class="value">{{ ipdb.usageType or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Country Code</td>
+          <td class="value">{{ ipdb.countryCode or 'Unknown' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Is Tor / Whitelisted / Public</td>
+          <td class="value">
             Tor: {{ 'Yes' if ipdb.isTor else 'No' }},
             Whitelisted: {{ 'Yes' if ipdb.isWhitelisted else 'No' }},
             Public: {{ 'Yes' if ipdb.isPublic else 'No' }}
-          </div>
-        </div>
-
+          </td>
+        </tr>
         {% if ipdb.top_reports %}
-          <div class="row">
-            <div class="key">Curated Top Reports</div>
-            <div class="value">
-              <ul class="bullet-list">
-                {% for r in ipdb.top_reports %}
-                  <li><strong>{{ r.reportedAt }}</strong>: {{ r.categories|join(', ') }} - {{ r.comment }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-          </div>
+        <tr>
+          <td class="label">Curated Top Reports</td>
+          <td class="value">
+            <ul class="bullet-list">
+              {% for r in ipdb.top_reports %}
+                <li><strong>{{ r.reportedAt }}</strong>: {{ r.categories|join(', ') }} - {{ r.comment }}</li>
+              {% endfor %}
+            </ul>
+          </td>
+        </tr>
         {% endif %}
-      </div>
+      </table>
+    </div>
+  {% endif %}
+
+  {% set us = data.features_summary.page_signals.us_summary if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.us_summary else none %}
+
+  {% if us and us.status == 'success' %}
+    <h2>urlscan.io Scan Report</h2>
+    <div class="card avoid-break">
+      <table class="card-table">
+        <tr>
+          <td class="label">Verdict</td>
+          <td class="value">
+            {% if us.verdict %}
+              <span class="{% if us.overall_malicious %}score-phishing{% elif us.overall_score >= 40 %}score-suspicious{% else %}score-safe{% endif %}">{{ us.verdict.label }} (Score: {{ us.overall_score }}/100)</span>
+            {% else %}
+              Unknown
+            {% endif %}
+          </td>
+        </tr>
+        {% if us.overall_categories %}
+        <tr>
+          <td class="label">Categories</td>
+          <td class="value">
+            {% for cat in us.overall_categories %}
+              <span class="pill">{{ cat }}</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+        {% if us.overall_tags %}
+        <tr>
+          <td class="label">Tags</td>
+          <td class="value">
+            {% for tag in us.overall_tags[:10] %}
+              <span class="pill">{{ tag }}</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td class="label">Community Score</td>
+          <td class="value">{{ us.community_score }}/100 {{ '-- Malicious' if us.community_malicious else '-- Clean' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Final URL</td>
+          <td class="value mono">{{ us.final_url or us.page_url or 'N/A' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Domain / IP</td>
+          <td class="value">{{ us.domain or 'N/A' }} / {{ us.ip or 'N/A' }}</td>
+        </tr>
+        <tr>
+          <td class="label">ASN</td>
+          <td class="value">{{ us.asn or 'N/A' }} {{ '(' + us.asn_name + ')' if us.asn_name else '' }}</td>
+        </tr>
+        <tr>
+          <td class="label">Country</td>
+          <td class="value">{{ us.country or 'Unknown' }}</td>
+        </tr>
+        {% if us.tls_valid is not none %}
+        <tr>
+          <td class="label">TLS Valid</td>
+          <td class="value {% if us.tls_valid %}score-safe{% else %}score-suspicious{% endif %}">{{ 'Yes' if us.tls_valid else 'No' }}</td>
+        </tr>
+        {% endif %}
+        {% if us.tls_issuer %}
+        <tr>
+          <td class="label">TLS Issuer</td>
+          <td class="value">{{ us.tls_issuer }}</td>
+        </tr>
+        {% endif %}
+        {% if us.http_status %}
+        <tr>
+          <td class="label">HTTP Status</td>
+          <td class="value">{{ us.http_status }}</td>
+        </tr>
+        {% endif %}
+        {% if us.response_mime_type %}
+        <tr>
+          <td class="label">Content Type</td>
+          <td class="value">{{ us.response_mime_type }}</td>
+        </tr>
+        {% endif %}
+        {% if us.redirect_count and us.redirect_count > 0 %}
+        <tr>
+          <td class="label">Redirects</td>
+          <td class="value">{{ us.redirect_count }} hop(s)</td>
+        </tr>
+        {% endif %}
+        {% if us.technologies and us.technologies|length > 0 %}
+        <tr>
+          <td class="label">Technologies</td>
+          <td class="value">
+            {% for tech in us.technologies[:10] %}
+              <span class="pill">{{ tech }}</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td class="label">Scan Report</td>
+          <td class="value mono">{{ us.result_url }}</td>
+        </tr>
+      </table>
     </div>
   {% endif %}
 
   <h2>Infrastructure and Redirect Context</h2>
   <div class="card avoid-break">
-    <div class="key-value">
-      <div class="row">
-        <div class="key">Observed Input URL</div>
-        <div class="value mono">{{ data.url }}</div>
-      </div>
-      <div class="row">
-        <div class="key">Final URL</div>
-        <div class="value mono">
+    <table class="card-table">
+      <tr>
+        <td class="label">Observed Input URL</td>
+        <td class="value mono">{{ data.url }}</td>
+      </tr>
+      <tr>
+        <td class="label">Final URL</td>
+        <td class="value mono">
           {% if vt and vt.final_url %}
             {{ vt.final_url }}
           {% elif data.redirect_chain %}
@@ -918,11 +1020,11 @@
           {% else %}
             {{ data.url }}
           {% endif %}
-        </div>
-      </div>
-      <div class="row">
-        <div class="key">Local Redirect Chain</div>
-        <div class="value">
+        </td>
+      </tr>
+      <tr>
+        <td class="label">Local Redirect Chain</td>
+        <td class="value">
           {% if data.redirect_chain %}
             <ul class="bullet-list">
               {% for u in data.redirect_chain %}
@@ -932,11 +1034,11 @@
           {% else %}
             None
           {% endif %}
-        </div>
-      </div>
-      <div class="row">
-        <div class="key">Serving IP Context</div>
-        <div class="value mono">
+        </td>
+      </tr>
+      <tr>
+        <td class="label">Serving IP Context</td>
+        <td class="value mono">
           {% if vt and vt.serving_ip %}
             {{ vt.serving_ip }}
           {% elif ipdb and ipdb.ipAddress %}
@@ -944,19 +1046,25 @@
           {% else %}
             Unknown
           {% endif %}
-        </div>
-      </div>
-      <div class="row">
-        <div class="key">Infrastructure Interpretation Summary</div>
-        <div class="value">
+        </td>
+      </tr>
+      <tr>
+        <td class="label">Infrastructure Interpretation</td>
+        <td class="value">
           {% if data.redirect_chain and data.redirect_chain|length > 2 %}
             Multiple redirects observed.
           {% else %}
             Standard resolution path.
           {% endif %}
-        </div>
-      </div>
-    </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="footer">
+    Report generated on {{ data.created_at }}<br />
+    <em>Absence of external detections does not guarantee safety.</em><br />
+    <em>VirusTotal category labels may reflect site classification context rather than direct malware confirmation.</em>
   </div>
 
 {% endif %}

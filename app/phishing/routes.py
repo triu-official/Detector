@@ -89,11 +89,14 @@ def report_pdf_standard(analysis_id):
         data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
 
     html_content = render_template("pdf_report.html", data=data, include_footprint=False)
-    import weasyprint
-    pdf_bytes = weasyprint.HTML(string=html_content, base_url=request.base_url).write_pdf()
-
+    from xhtml2pdf import pisa
+    output = io.BytesIO()
+    pisa_status = pisa.CreatePDF(src=html_content, dest=output, encoding="utf-8")
+    if pisa_status.err:
+        return "PDF generation failed", 500
+    output.seek(0)
     return send_file(
-        io.BytesIO(pdf_bytes),
+        output,
         mimetype="application/pdf",
         as_attachment=True,
         download_name=f"analysis_report_{analysis_id}.pdf"
@@ -113,11 +116,14 @@ def report_pdf_footprint(analysis_id):
         data["features_summary"]["page_signals"]["vt_summary"] = normalize_vt_summary(vt)
 
     html_content = render_template("pdf_report.html", data=data, include_footprint=True)
-    import weasyprint
-    pdf_bytes = weasyprint.HTML(string=html_content, base_url=request.base_url).write_pdf()
-
+    from xhtml2pdf import pisa
+    output = io.BytesIO()
+    pisa_status = pisa.CreatePDF(src=html_content, dest=output, encoding="utf-8")
+    if pisa_status.err:
+        return "PDF generation failed", 500
+    output.seek(0)
     return send_file(
-        io.BytesIO(pdf_bytes),
+        output,
         mimetype="application/pdf",
         as_attachment=True,
         download_name=f"analysis_report_with_footprint_{analysis_id}.pdf"

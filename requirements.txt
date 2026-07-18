@@ -12,4 +12,4 @@ lxml==5.2.2
 python-whois>=0.9.5
 dnspython>=2.6.1
 pyOpenSSL>=24.2.1
-weasyprint
+xhtml2pdf>=0.2.15

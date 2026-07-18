@@ -805,6 +805,31 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         else:
             ipdb_signal = "clean"
 
+    # urlscan.io
+    us_summary = page_signals.get("us_summary", {})
+    us_signal = "not available"
+    if us_summary and us_summary.get("status") == "success":
+        us_verdict = us_summary.get("verdict", {})
+        us_malicious = us_verdict.get("malicious", False)
+        us_score = us_verdict.get("score", 0)
+
+        us_bump_mal = config.get("URLSCAN_SCORE_BUMP_MALICIOUS", 15)
+        us_bump_sus = config.get("URLSCAN_SCORE_BUMP_SUSPICIOUS", 5)
+        us_max_bump = config.get("URLSCAN_MAX_BUMP", 20)
+
+        if us_malicious or us_score >= 70:
+            bump = min(us_bump_mal, us_max_bump)
+            external_risk_score += bump
+            contributing_factors.append(f"urlscan.io flagged URL with score {us_score}/100 (+{bump})")
+            us_signal = "flagged"
+        elif us_score >= 40:
+            bump = min(us_bump_sus, us_max_bump)
+            external_risk_score += bump
+            contributing_factors.append(f"urlscan.io reports moderate risk score {us_score}/100 (+{bump})")
+            us_signal = "flagged"
+        else:
+            us_signal = "clean"
+
     # VirusTotal
     vt_summary = page_signals.get("vt_summary", {})
     vt_signal = "not available"
@@ -973,6 +998,13 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         else:
             clean_sources += 1
 
+    if us_signal != "not available":
+        sources_count += 1
+        if us_signal == "flagged":
+            flagged_sources += 1
+        else:
+            clean_sources += 1
+
     confidence_mode = "local_only" if sources_count == 0 else "local_plus_apis"
     confidence_level = "low"
     confidence_reason = "Local heuristics only."
@@ -1014,7 +1046,8 @@ def score_analysis(features: dict[str, float], page_signals: dict[str, float], r
         "confidence_reason": confidence_reason,
         "vt_signal": vt_signal,
         "sb_signal": sb_signal,
-        "ipdb_signal": ipdb_signal
+        "ipdb_signal": ipdb_signal,
+        "us_signal": us_signal
     }
 
     for factor in contributing_factors:

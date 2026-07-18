@@ -73,6 +73,9 @@
       {% if conf.ipdb_signal != "not available" %}
       <div><span>AbuseIPDB</span><span class="{{ 'score-phishing' if conf.ipdb_signal == 'flagged' else 'score-safe' }}">{{ conf.ipdb_signal | title }}</span></div>
       {% endif %}
+      {% if conf.us_signal is defined and conf.us_signal != "not available" %}
+      <div><span>urlscan.io</span><span class="{{ 'score-phishing' if conf.us_signal == 'flagged' else 'score-safe' }}">{{ conf.us_signal | title }}</span></div>
+      {% endif %}
       <div><span>Confidence</span><span>{{ conf.confidence_level | title }} — {{ conf.confidence_reason }}</span></div>
     </div>
   </article>
@@ -447,8 +450,90 @@
 {% if us.status == 'success' %}
 <section class="card">
   <h2>Urlscan.io Enrichment</h2>
+
+  {% if us.verdict %}
+  <div class="key-value" style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border, #ddd);">
+    <div><span>Verdict</span><span class="{{ 'score-phishing' if us.overall_malicious else ('score-suspicious' if us.overall_score >= 40 else 'score-safe') }}">{{ us.verdict.label }}</span></div>
+    <div><span>Risk Score</span><span>{{ us.overall_score }}/100</span></div>
+    {% if us.overall_categories %}
+    <div><span>Categories</span><span>{% for cat in us.overall_categories %}<span class="pill">{{ cat }}</span>{% endfor %}</span></div>
+    {% endif %}
+    {% if us.overall_tags %}
+    <div><span>Tags</span><span>{% for tag in us.overall_tags[:8] %}<span class="pill" style="font-size: 0.8em;">{{ tag }}</span>{% endfor %}{% if us.overall_tags|length > 8 %} <span class="muted" style="font-size:0.8em;">+{{ us.overall_tags|length - 8 }} more</span>{% endif %}</span></div>
+    {% endif %}
+    <div><span>Community Score</span><span>{{ us.community_score }}/100 {{ '— Malicious' if us.community_malicious else '— Clean' }}</span></div>
+  </div>
+  {% endif %}
+
   <div class="key-value">
-    <div><span>Scan Result</span><span><a href="{{ us.result_url }}" target="_blank" rel="noopener noreferrer">View Report</a></span></div>
+    <div><span>Final URL</span><span class="mono">{{ us.final_url or us.page_url or 'N/A' }}</span></div>
+    {% if us.page_url and us.final_url and us.page_url != us.final_url %}
+    <div><span>Original URL</span><span class="mono">{{ us.page_url }}</span></div>
+    {% endif %}
+    <div><span>Domain</span><span>{{ us.domain or 'N/A' }}</span></div>
+    <div><span>IP Address</span><span class="mono">{{ us.ip or 'N/A' }}</span></div>
+    <div><span>ASN</span><span>{{ us.asn or 'N/A' }} {{ '(' + us.asn_name + ')' if us.asn_name else '' }}</span></div>
+    <div><span>Country</span><span>{{ us.country or 'Unknown' }}</span></div>
+
+    {% if us.tls_valid is not none %}
+    <div><span>TLS Valid</span><span class="{{ 'score-safe' if us.tls_valid else 'score-suspicious' }}">{{ 'Yes' if us.tls_valid else 'No' }}</span></div>
+    {% endif %}
+    {% if us.tls_issuer %}
+    <div><span>TLS Issuer</span><span>{{ us.tls_issuer }}</span></div>
+    {% endif %}
+    {% if us.tls_age_days is not none %}
+    <div><span>TLS Certificate Age</span><span>{{ us.tls_age_days }} days</span></div>
+    {% endif %}
+
+    {% if us.http_status %}
+    <div><span>HTTP Status</span><span>{{ us.http_status }}</span></div>
+    {% endif %}
+    {% if us.response_mime_type %}
+    <div><span>Content Type</span><span>{{ us.response_mime_type }}</span></div>
+    {% endif %}
+    {% if us.response_content_length %}
+    <div><span>Content Length</span><span>{{ us.response_content_length }} bytes</span></div>
+    {% endif %}
+
+    {% if us.redirect_count and us.redirect_count > 0 %}
+    <div><span>Redirects</span><span>{{ us.redirect_count }} hop(s)
+      {% if us.redirect_chain %}
+      <ul class="bullet-list" style="margin:0; padding-left:1.2rem;">
+        {% for r in us.redirect_chain %}<li class="mono" style="font-size:0.85em;">{{ r }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </span></div>
+    {% endif %}
+
+    {% if us.response_headers %}
+    <div><span>Curated Response Headers</span>
+      <span>
+        {% for hk, hv in us.response_headers.items() %}
+        <div style="font-size:0.85em;"><span class="muted">{{ hk }}:</span> {{ hv }}</div>
+        {% endfor %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if us.technologies and us.technologies|length > 0 %}
+    <div><span>Technologies</span>
+      <span>
+        {% for tech in us.technologies[:10] %}
+        <span class="pill" style="font-size:0.8em;">{{ tech }}</span>
+        {% endfor %}
+        {% if us.technologies|length > 10 %}<span class="muted" style="font-size:0.8em;">+{{ us.technologies|length - 10 }} more</span>{% endif %}
+      </span>
+    </div>
+    {% endif %}
+
+    {% if us.external_resources and us.external_resources|length > 0 %}
+    <div><span>External Resources</span><span>{{ us.external_resources_count }} total ({% for ext in us.external_resources[:5] %}{{ ext.domain }}{{ ', ' if not loop.last }}{% endfor %}{% if us.external_resources_count > 5 %}...{% endif %})</span></div>
+    {% endif %}
+
+    <div><span>Report</span><span><a href="{{ us.result_url }}" target="_blank" rel="noopener noreferrer">View Full Scan on urlscan.io</a></span></div>
+    {% if us.screenshot_url %}
+    <div><span>Screenshot</span><span><a href="{{ us.screenshot_url }}" target="_blank" rel="noopener noreferrer">View Screenshot</a></span></div>
+    {% endif %}
   </div>
 </section>
 {% elif us.status == 'rate_limited' %}
