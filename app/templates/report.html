@@ -19,137 +19,208 @@
 </section>
 {% endif %}
 
-<section class="grid two-up">
-  <article class="card">
-    <h2>Summary</h2>
-    <div class="key-value">
-      <div><span>URL</span><span class="mono">{{ data.url }}</span></div>
-      <div><span>Domain</span><span>{{ data.domain }}</span></div>
-      <div><span>Risk Score</span><span class="score-{{ data.label }}">{{ data.risk_score }}/100</span></div>
-      <div><span>Label</span><span class="pill pill-{{ data.label }}">{{ data.label }}</span></div>
-      <div><span>Reachability</span><span>{{ data.reachability | replace('_', ' ') }}</span></div>
-      <div><span>Status Code</span><span>{{ data.status_code or 'N/A' }}</span></div>
-      <div><span>Analyzed</span><span>{{ data.created_at }}</span></div>
+<section class="card dashboard-hero">
+  <div class="hero-score-panel">
+    <div class="radial-progress {{ data.label }}" style="--progress: {{ data.risk_score }}%;">
+      <div class="radial-content">
+        <span class="radial-score">{{ data.risk_score }}</span>
+      </div>
     </div>
-  </article>
+    <div class="pill pill-{{ data.label }}" style="font-size: 1.1rem; font-weight: 700;">{{ data.label | upper }}</div>
+  </div>
 
-  {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment %}
-  {% set fusion = data.features_summary.page_signals.fusion_assessment %}
-  <article class="card">
-    <h2>Combined Verdict (Fusion Model)</h2>
-    <div class="key-value">
-      <div><span>Local Heuristic Risk</span><span>{{ fusion.local_risk_score }}/100</span></div>
-      <div><span>Domain Structural Risk</span><span>+{{ fusion.domain_risk_score }}</span></div>
-      <div><span>External Threat Feed Risk</span><span>+{{ fusion.external_risk_score }}</span></div>
-      <div><span>Positive Trust Offset</span><span class="score-safe">-{{ fusion.positive_trust_offset }}</span></div>
-      <div><span>Final Unified Score</span><span class="score-{{ fusion.final_label }}">{{ fusion.final_risk_score }}/100 — {{ fusion.final_label | upper }}</span></div>
-      <div><span>Confidence Mode</span><span>{{ fusion.confidence_mode | replace('_', ' ') | title }}</span></div>
-      <div><span>Confidence Level</span><span>{{ fusion.confidence_level | title }}</span></div>
-      <div><span>Confidence Reason</span><span>{{ fusion.confidence_reason }}</span></div>
+  <div class="hero-details-panel">
+    <h2>Analysis Summary</h2>
+    <div class="key-value" style="font-size: 0.95rem;">
+      <div><span class="muted">Domain</span><strong style="font-size: 1.1em;">{{ data.domain }}</strong></div>
+      <div><span class="muted">URL</span><span class="mono" style="word-break: break-all;">{{ data.url }}</span></div>
+      {% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment %}
+      {% set fusion = data.features_summary.page_signals.fusion_assessment %}
+      <div><span class="muted">Confidence</span><span><strong>{{ fusion.confidence_level | title }}</strong> — {{ fusion.confidence_reason }}</span></div>
+      {% elif data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
+      {% set conf = data.features_summary.page_signals.blended_confidence %}
+      <div><span class="muted">Confidence</span><span><strong>{{ conf.confidence_level | title }}</strong> — {{ conf.confidence_reason }}</span></div>
+      {% endif %}
+      <div><span class="muted">Reachability</span><span>{{ data.reachability | replace('_', ' ') | title }}</span></div>
+      <div><span class="muted">Analyzed</span><span>{{ data.created_at }}</span></div>
     </div>
-    
-    {% if fusion.contributing_factors %}
-    <div style="margin-top: 1rem;">
-      <strong>Contributing Risk Factors:</strong>
-      <ul class="bullet-list" style="margin-top: 0.5rem; font-size: 0.9em;">
+  </div>
+</section>
+
+{% if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment %}
+{% set fusion = data.features_summary.page_signals.fusion_assessment %}
+<section class="card">
+  <h2>Score Composition & Factors</h2>
+  <div class="chart-container" style="height: 60px; margin: 1rem 0;">
+    <canvas id="compositionChart"></canvas>
+  </div>
+
+  <div class="key-value print-only-text" style="font-size: 0.9em; margin-top: 1rem;">
+    <div><span>Local Heuristic Risk</span><span>{{ fusion.local_risk_score }}/100</span></div>
+    <div><span>Domain Structural Risk</span><span>+{{ fusion.domain_risk_score }}</span></div>
+    <div><span>External Threat Feed Risk</span><span>+{{ fusion.external_risk_score }}</span></div>
+    <div><span>Positive Trust Offset</span><span class="score-safe">-{{ fusion.positive_trust_offset }}</span></div>
+    <div><span>Final Unified Score</span><span class="score-{{ fusion.final_label }}">{{ fusion.final_risk_score }}/100 — {{ fusion.final_label | upper }}</span></div>
+  </div>
+
+  <div class="grid two-up" style="margin-top: 1.5rem;">
+    <div>
+      <h3 style="margin-top:0; font-size: 1rem; color: var(--danger);">Contributing Risk Factors</h3>
+      {% if fusion.contributing_factors %}
+      <div class="factors-list">
         {% for f in fusion.contributing_factors %}
-        <li>{{ f }}</li>
+        <div class="factor-item"><span class="factor-icon risk"></span><span>{{ f }}</span></div>
         {% endfor %}
-      </ul>
+      </div>
+      {% else %}
+      <p class="muted">No explicit risk factors recorded.</p>
+      {% endif %}
     </div>
-    {% endif %}
     
-    {% if fusion.mitigating_factors %}
-    <div style="margin-top: 1rem;">
-      <strong>Mitigating Trust Factors:</strong>
-      <ul class="bullet-list" style="margin-top: 0.5rem; font-size: 0.9em; color: var(--success, green);">
+    <div>
+      <h3 style="margin-top:0; font-size: 1rem; color: var(--success);">Mitigating Trust Factors</h3>
+      {% if fusion.mitigating_factors %}
+      <div class="factors-list">
         {% for m in fusion.mitigating_factors %}
-        <li>{{ m }}</li>
+        <div class="factor-item"><span class="factor-icon trust"></span><span>{{ m }}</span></div>
         {% endfor %}
-      </ul>
+      </div>
+      {% else %}
+      <p class="muted">No mitigating trust factors recorded.</p>
+      {% endif %}
     </div>
+  </div>
+</section>
+{% elif data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
+{% set conf = data.features_summary.page_signals.blended_confidence %}
+<section class="card">
+  <h2>Combined Verdict</h2>
+  <div class="key-value">
+    <div><span>Local Score</span><span class="score-{{ data.label }}">{{ data.risk_score }}/100 — {{ data.label }}</span></div>
+    {% if conf.vt_signal != "not available" %}
+    <div><span>VirusTotal</span><span class="{{ 'score-phishing' if conf.vt_signal == 'flagged' else 'score-safe' }}">{{ conf.vt_signal | title }}</span></div>
     {% endif %}
-  </article>
-  {% elif data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.blended_confidence %}
-  {% set conf = data.features_summary.page_signals.blended_confidence %}
-  <article class="card">
-    <h2>Combined Verdict</h2>
-    <div class="key-value">
-      <div><span>Local Score</span><span class="score-{{ data.label }}">{{ data.risk_score }}/100 — {{ data.label }}</span></div>
-      {% if conf.vt_signal != "not available" %}
-      <div><span>VirusTotal</span><span class="{{ 'score-phishing' if conf.vt_signal == 'flagged' else 'score-safe' }}">{{ conf.vt_signal | title }}</span></div>
-      {% endif %}
-      {% if conf.sb_signal != "not available" %}
-      <div><span>Safe Browsing</span><span class="{{ 'score-phishing' if conf.sb_signal == 'flagged' else 'score-safe' }}">{{ conf.sb_signal | title }}</span></div>
-      {% endif %}
-      {% if conf.ipdb_signal != "not available" %}
-      <div><span>AbuseIPDB</span><span class="{{ 'score-phishing' if conf.ipdb_signal == 'flagged' else 'score-safe' }}">{{ conf.ipdb_signal | title }}</span></div>
-      {% endif %}
-      {% if conf.us_signal is defined and conf.us_signal != "not available" %}
-      <div><span>urlscan.io</span><span class="{{ 'score-phishing' if conf.us_signal == 'flagged' else 'score-safe' }}">{{ conf.us_signal | title }}</span></div>
-      {% endif %}
-      <div><span>Confidence</span><span>{{ conf.confidence_level | title }} — {{ conf.confidence_reason }}</span></div>
+    {% if conf.sb_signal != "not available" %}
+    <div><span>Safe Browsing</span><span class="{{ 'score-phishing' if conf.sb_signal == 'flagged' else 'score-safe' }}">{{ conf.sb_signal | title }}</span></div>
+    {% endif %}
+    {% if conf.ipdb_signal != "not available" %}
+    <div><span>AbuseIPDB</span><span class="{{ 'score-phishing' if conf.ipdb_signal == 'flagged' else 'score-safe' }}">{{ conf.ipdb_signal | title }}</span></div>
+    {% endif %}
+    {% if conf.us_signal is defined and conf.us_signal != "not available" %}
+    <div><span>urlscan.io</span><span class="{{ 'score-phishing' if conf.us_signal == 'flagged' else 'score-safe' }}">{{ conf.us_signal | title }}</span></div>
+    {% endif %}
+    <div><span>Confidence</span><span>{{ conf.confidence_level | title }} — {{ conf.confidence_reason }}</span></div>
+  </div>
+</section>
+{% endif %}
+
+
+
+{% if data.features_summary and data.features_summary.page_signals %}
+<section class="card">
+  <h2>Provider Status Overview</h2>
+  <div class="provider-grid">
+    {% set conf = data.features_summary.page_signals.blended_confidence or {} %}
+
+    {% set vt_sig = conf.vt_signal | default('not available') %}
+    {% set vt_cls = 'phishing' if vt_sig == 'flagged' else ('safe' if vt_sig == 'clean' else 'inactive') %}
+    <div class="provider-card {{ vt_cls }}">
+      <span class="name">VirusTotal</span>
+      <span class="status">{{ vt_sig | title }}</span>
     </div>
-  </article>
-  {% endif %}
 
+    {% set sb_sig = conf.sb_signal | default('not available') %}
+    {% set sb_cls = 'phishing' if sb_sig == 'flagged' else ('safe' if sb_sig == 'clean' else 'inactive') %}
+    <div class="provider-card {{ sb_cls }}">
+      <span class="name">Safe Browsing</span>
+      <span class="status">{{ sb_sig | title }}</span>
+    </div>
 
+    {% set ipdb_sig = conf.ipdb_signal | default('not available') %}
+    {% set ipdb_cls = 'phishing' if ipdb_sig == 'flagged' else ('safe' if ipdb_sig == 'clean' else 'inactive') %}
+    <div class="provider-card {{ ipdb_cls }}">
+      <span class="name">AbuseIPDB</span>
+      <span class="status">{{ ipdb_sig | title }}</span>
+    </div>
+
+    {% set us_sig = conf.us_signal | default('not available') %}
+    {% set us_cls = 'phishing' if us_sig == 'flagged' else ('safe' if us_sig == 'clean' else 'inactive') %}
+    <div class="provider-card {{ us_cls }}">
+      <span class="name">urlscan.io</span>
+      <span class="status">{{ us_sig | title }}</span>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="grid two-up">
   {% if data.features_summary and data.features_summary.domain_info %}
   <article class="card">
     <h2>Domain Intelligence</h2>
-    <div class="key-value">
-      {% set dinfo = data.features_summary.domain_info %}
+    {% set dinfo = data.features_summary.domain_info %}
+
+    <div style="display:flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
       {% if dinfo.domain_trust %}
-      <div><span>Domain Trust Verdict</span><span class="{{ 'score-phishing' if dinfo.domain_trust.verdict == 'suspicious' else 'score-safe' }}">{{ dinfo.domain_trust.verdict | title }} ({{ dinfo.domain_trust.severity | title }} Severity)</span></div>
-      <div><span>Trust Reason</span><span>{{ dinfo.domain_trust.reason }}</span></div>
-      {% endif %}
-      {% if dinfo.creation_date %}
-      <div><span>Registered On</span><span>{{ dinfo.creation_date }}</span></div>
-      {% endif %}
-      {% if data.features_summary.domain_age_days is not none %}
-      <div><span>Domain Age</span><span>{{ (data.features_summary.domain_age_days / 365) | round(1) }} years ({{ data.features_summary.domain_age_days | int }} days)</span></div>
+      <span class="pill pill-{{ 'phishing' if dinfo.domain_trust.verdict == 'suspicious' else 'safe' }}">Trust: {{ dinfo.domain_trust.verdict | title }}</span>
       {% endif %}
       {% if data.features_summary.domain_info.domain_age_bucket %}
-      <div><span>Age Bucket</span><span>{{ data.features_summary.domain_info.domain_age_bucket }}</span></div>
-      {% endif %}
-      {% if dinfo.expiration_date %}
-      <div><span>Expires On</span><span>{{ dinfo.expiration_date }}</span></div>
-      {% endif %}
-      {% if dinfo.registrar and dinfo.registrar != 'unknown' %}
-      <div><span>Registrar</span><span>{{ dinfo.registrar }}</span></div>
-      {% endif %}
-      {% if dinfo.name_servers and dinfo.name_servers | length > 0 %}
-      <div><span>Name Servers</span><span>{{ dinfo.name_servers[:3] | join(', ') }}{{ ' +' ~ (dinfo.name_servers | length - 3) ~ ' more' if dinfo.name_servers | length > 3 else '' }}</span></div>
+      <span class="pill pill-{{ 'suspicious' if data.features_summary.domain_info.domain_age_bucket in ['New', 'Very New'] else 'safe' }}">Age: {{ data.features_summary.domain_info.domain_age_bucket }}</span>
       {% endif %}
     </div>
+
+    <div class="key-value" style="font-size: 0.9em;">
+      {% if dinfo.domain_trust and dinfo.domain_trust.reason %}
+      <div><span class="muted">Trust Reason</span><span>{{ dinfo.domain_trust.reason }}</span></div>
+      {% endif %}
+      {% if data.features_summary.domain_age_days is not none %}
+      <div><span class="muted">Domain Age</span><span>{{ (data.features_summary.domain_age_days / 365) | round(1) }} years ({{ data.features_summary.domain_age_days | int }} days)</span></div>
+      {% endif %}
+      {% if dinfo.registrar and dinfo.registrar != 'unknown' %}
+      <div><span class="muted">Registrar</span><span>{{ dinfo.registrar }}</span></div>
+      {% endif %}
+      {% if dinfo.name_servers and dinfo.name_servers | length > 0 %}
+      <div><span class="muted">Name Servers</span><span>{{ dinfo.name_servers[:2] | join(', ') }}{{ ' +' ~ (dinfo.name_servers | length - 2) ~ ' more' if dinfo.name_servers | length > 2 else '' }}</span></div>
+      {% endif %}
+    </div>
+
+    {% if dinfo.creation_date or dinfo.expiration_date %}
+    <div class="milestone-row" style="margin-top: 1rem;">
+      {% if dinfo.creation_date %}
+      <div class="milestone"><span class="milestone-label">Registered</span><span class="milestone-value">{{ dinfo.creation_date[:10] }}</span></div>
+      {% endif %}
+      {% if dinfo.expiration_date %}
+      <div class="milestone"><span class="milestone-label">Expires</span><span class="milestone-value">{{ dinfo.expiration_date[:10] }}</span></div>
+      {% endif %}
+    </div>
+    {% endif %}
   </article>
   {% endif %}
 
   <article class="card">
-    <h2>Signals &amp; Reasons</h2>
+    <h2>Signals &amp; Observations</h2>
     {% if data.reasons %}
-    <ul class="bullet-list">
+    <div class="factors-list">
       {% for reason in data.reasons %}
-      <li>{{ reason }}</li>
+      <div class="factor-item"><span class="factor-icon risk"></span><span>{{ reason }}</span></div>
       {% endfor %}
-    </ul>
+    </div>
     {% else %}
     <p class="muted">No specific signals detected.</p>
     {% endif %}
 
     {% if data.features_summary %}
       {% if data.features_summary.url_features and data.features_summary.url_features.brand_impersonation %}
-      <div style="margin-top: 1rem; color: var(--danger);">
-        <strong>Brand Impersonation Detected</strong>
+      <div class="factors-list" style="margin-top: 1rem; color: var(--danger);">
+        <div class="factor-item"><span class="factor-icon risk"></span><strong>Brand Impersonation Detected</strong></div>
         {% if data.features_summary.brand_token_hits and data.features_summary.brand_token_hits | length > 0 %}
-        <span> — matched tokens: {{ data.features_summary.brand_token_hits | join(', ') }}</span>
+        <div style="padding-left: 1.5rem; font-size: 0.85em; opacity: 0.9;">Matched tokens: {{ data.features_summary.brand_token_hits | join(', ') }}</div>
         {% endif %}
       </div>
       {% endif %}
       {% if data.features_summary.page_signals and data.features_summary.page_signals.binary_response %}
-      <div style="margin-top: 1rem; color: var(--warning);">
-        <strong>Binary / Non-HTML Response</strong>
-        <span> — the content returned was binary or unreadable. Deep content inspection was skipped.</span>
+      <div class="factors-list" style="margin-top: 1rem; color: var(--warning);">
+        <div class="factor-item"><span class="factor-icon risk"></span><strong>Binary / Non-HTML Response</strong></div>
+        <div style="padding-left: 1.5rem; font-size: 0.85em; opacity: 0.9;">The content returned was binary or unreadable. Deep content inspection was skipped.</div>
       </div>
       {% endif %}
     {% endif %}
@@ -163,24 +234,45 @@
   <h2>VirusTotal Enrichment</h2>
 
   {% if vt.verdict %}
-  <div class="key-value" style="margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border, #ddd);">
-    <div><span>Detection</span><span class="{{ 'score-phishing' if vt.stats.malicious_count > 0 else ('score-suspicious' if vt.stats.suspicious_count > 0 else 'score-safe') }}">{{ vt.verdict.detection_verdict }}</span></div>
+  <div style="display:flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+    <span class="pill pill-{{ 'phishing' if vt.stats.malicious_count > 0 else ('suspicious' if vt.stats.suspicious_count > 0 else 'safe') }}" style="font-size:1rem;">{{ vt.verdict.detection_verdict }}</span>
     {% if vt.verdict.category_context %}
-    <div><span>Category</span><span>{{ vt.verdict.category_context }}</span></div>
+    <span class="pill">{{ vt.verdict.category_context }}</span>
     {% endif %}
-    <div><span>Reputation</span><span>{{ vt.verdict.reputation_context }}</span></div>
+    <span class="pill">{{ vt.verdict.reputation_context }} (Reputation: {{ vt.reputation }})</span>
   </div>
   {% endif %}
 
+  <div class="grid two-up" style="margin-bottom: 1.5rem;">
+    <div>
+      <h3 style="margin-top:0; font-size:1rem;">Engine Detections</h3>
+      <div class="chart-container" style="height: 40px; margin-top: 0.5rem; max-width: 400px;">
+        <canvas id="vtEngineChart"></canvas>
+      </div>
+      <div class="key-value" style="font-size:0.85rem; margin-top:0.5rem; opacity:0.9;">
+        <div><span>Total Engines</span><span>{{ vt.stats.total_engines }}</span></div>
+        <div><span>Malicious / Suspicious</span><span class="{{ 'score-phishing' if vt.stats.malicious_count > 0 else '' }}">{{ vt.stats.malicious_count }} / {{ vt.stats.suspicious_count }}</span></div>
+        <div><span>Harmless / Undetected</span><span>{{ vt.stats.harmless_count }} / {{ vt.stats.undetected_count }}</span></div>
+      </div>
+    </div>
+
+    <div>
+      <h3 style="margin-top:0; font-size:1rem;">Community Votes</h3>
+      {% if vt.votes %}
+      <div class="chart-container" style="height: 40px; margin-top: 0.5rem; max-width: 400px;">
+        <canvas id="vtVotesChart"></canvas>
+      </div>
+      <div class="key-value" style="font-size:0.85rem; margin-top:0.5rem; opacity:0.9;">
+        <div><span>Harmless</span><span class="score-safe">{{ vt.votes.harmless }}</span></div>
+        <div><span>Malicious</span><span class="{{ 'score-phishing' if vt.votes.malicious > 0 else '' }}">{{ vt.votes.malicious }}</span></div>
+      </div>
+      {% else %}
+      <p class="muted" style="font-size:0.85rem;">No community votes recorded.</p>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="key-value">
-    <div><span>Malicious</span><span class="score-phishing">{{ vt.stats.malicious_count }} / {{ vt.stats.total_engines }}</span></div>
-    <div><span>Suspicious</span><span class="score-suspicious">{{ vt.stats.suspicious_count }} / {{ vt.stats.total_engines }}</span></div>
-    <div><span>Harmless</span><span class="score-safe">{{ vt.stats.harmless_count }}</span></div>
-    <div><span>Undetected</span><span class="score-safe">{{ vt.stats.undetected_count }}</span></div>
-    <div><span>Reputation Score</span><span>{{ vt.reputation }}</span></div>
-    {% if vt.votes %}
-    <div><span>Community Votes</span><span>Harmless {{ vt.votes.harmless }} / Malicious {{ vt.votes.malicious }}</span></div>
-    {% endif %}
 
     {% if vt.serving_ip %}
     <div><span>Serving IP</span><span class="mono">{{ vt.serving_ip }}</span></div>
@@ -209,26 +301,24 @@
     </div>
     {% endif %}
 
-    {% if vt.categories and vt.categories|length > 0 %}
-    <div><span>Categories</span>
-      <span>
+    {% if (vt.categories and vt.categories|length > 0) or (vt.tags and vt.tags|length > 0) %}
+    <div><span>Classification</span>
+      <div style="display:flex; flex-wrap:wrap; gap:0.4rem; justify-content: flex-end; max-width: 400px;">
+        {% if vt.categories %}
         {% for cat in vt.categories %}
-        <span class="pill">{{ cat }}</span>
+        <span class="pill" style="background: rgba(255,255,255,0.05);">{{ cat }}</span>
         {% endfor %}
-      </span>
-    </div>
-    {% endif %}
+        {% endif %}
 
-    {% if vt.tags and vt.tags|length > 0 %}
-    <div><span>Tags</span>
-      <span>
+        {% if vt.tags %}
         {% for tag in vt.tags[:10] %}
         <span class="pill" style="font-size: 0.8em;">{{ tag }}</span>
         {% endfor %}
         {% if vt.tags|length > 10 %}
-        <span class="muted" style="font-size:0.8em;">+{{ vt.tags|length - 10 }} more</span>
+        <span class="muted" style="font-size:0.8em; align-self:center;">+{{ vt.tags|length - 10 }} more</span>
         {% endif %}
-      </span>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
 
@@ -677,4 +767,120 @@
     <strong>Analysis Report PDF:</strong> concise summary &nbsp;|&nbsp; <strong>Analysis + Footprint PDF:</strong> extended technical intelligence
   </p>
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const isDark = document.documentElement.dataset.theme !== 'light';
+  Chart.defaults.color = isDark ? '#9eb0cb' : '#51627f';
+  Chart.defaults.font.family = 'Inter, Arial, sans-serif';
+  Chart.defaults.plugins.tooltip.backgroundColor = isDark ? '#111c31' : '#ffffff';
+  Chart.defaults.plugins.tooltip.titleColor = isDark ? '#e9f0ff' : '#111827';
+  Chart.defaults.plugins.tooltip.bodyColor = isDark ? '#9eb0cb' : '#51627f';
+  Chart.defaults.plugins.tooltip.borderColor = isDark ? '#22304f' : '#d6deeb';
+  Chart.defaults.plugins.tooltip.borderWidth = 1;
+
+  // Composition Chart
+  const compCtx = document.getElementById('compositionChart');
+  if (compCtx) {
+    const local = parseFloat("{{ data.features_summary.page_signals.fusion_assessment.local_risk_score if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment else 0 }}");
+    const domain = parseFloat("{{ data.features_summary.page_signals.fusion_assessment.domain_risk_score if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment else 0 }}");
+    const external = parseFloat("{{ data.features_summary.page_signals.fusion_assessment.external_risk_score if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment else 0 }}");
+    const trust = parseFloat("{{ data.features_summary.page_signals.fusion_assessment.positive_trust_offset if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.fusion_assessment else 0 }}");
+
+    new Chart(compCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Risk Contribution'],
+        datasets: [
+          { label: 'Local Heuristics', data: [local], backgroundColor: '#f59e0b', stack: 'Stack 0' },
+          { label: 'Domain Structural', data: [domain], backgroundColor: '#ef4444', stack: 'Stack 0' },
+          { label: 'External Threat', data: [external], backgroundColor: '#991b1b', stack: 'Stack 0' },
+          { label: 'Trust Mitigations', data: [-trust], backgroundColor: '#22c55e', stack: 'Stack 0' }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, display: false }
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+        }
+      }
+    });
+  }
+
+  // VirusTotal Engine Chart
+  const vtEngineCtx = document.getElementById('vtEngineChart');
+  if (vtEngineCtx) {
+    const malicious = parseInt("{{ data.features_summary.page_signals.vt_summary.stats.malicious_count if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.stats else 0 }}");
+    const suspicious = parseInt("{{ data.features_summary.page_signals.vt_summary.stats.suspicious_count if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.stats else 0 }}");
+    const harmless = parseInt("{{ data.features_summary.page_signals.vt_summary.stats.harmless_count if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.stats else 0 }}");
+    const undetected = parseInt("{{ data.features_summary.page_signals.vt_summary.stats.undetected_count if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.stats else 0 }}");
+
+    new Chart(vtEngineCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Engines'],
+        datasets: [
+          { label: 'Malicious', data: [malicious], backgroundColor: '#ef4444', stack: 'Stack 0' },
+          { label: 'Suspicious', data: [suspicious], backgroundColor: '#f59e0b', stack: 'Stack 0' },
+          { label: 'Harmless', data: [harmless], backgroundColor: '#22c55e', stack: 'Stack 0' },
+          { label: 'Undetected', data: [undetected], backgroundColor: isDark ? '#22304f' : '#d6deeb', stack: 'Stack 0' }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, display: false },
+          y: { stacked: true, display: false }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { position: 'nearest' }
+        }
+      }
+    });
+  }
+
+  // VirusTotal Votes Chart
+  const vtVotesCtx = document.getElementById('vtVotesChart');
+  if (vtVotesCtx) {
+    const votesMalicious = parseInt("{{ data.features_summary.page_signals.vt_summary.votes.malicious if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.votes else 0 }}");
+    const votesHarmless = parseInt("{{ data.features_summary.page_signals.vt_summary.votes.harmless if data.features_summary and data.features_summary.page_signals and data.features_summary.page_signals.vt_summary and data.features_summary.page_signals.vt_summary.votes else 0 }}");
+
+    if (votesMalicious > 0 || votesHarmless > 0) {
+        new Chart(vtVotesCtx, {
+          type: 'bar',
+          data: {
+            labels: ['Votes'],
+            datasets: [
+              { label: 'Malicious', data: [votesMalicious], backgroundColor: '#ef4444', stack: 'Stack 0' },
+              { label: 'Harmless', data: [votesHarmless], backgroundColor: '#22c55e', stack: 'Stack 0' }
+            ]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { stacked: true, display: false },
+              y: { stacked: true, display: false }
+            },
+            plugins: {
+              legend: { display: false }
+            }
+          }
+        });
+    }
+  }
+});
+</script>
 {% endblock %}

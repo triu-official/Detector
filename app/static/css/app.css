@@ -126,3 +126,158 @@ details summary:hover { opacity: .8; }
 @media (max-width: 760px) {
   .topbar, .footer, .section-heading, .result-heading, .hero, .action-row, .table-row, .trend-row { flex-direction: column; align-items: stretch; }
 }
+
+/* Visual Dashboard Enhancements */
+.dashboard-hero {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem;
+  background: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.1) 100%);
+}
+@media (max-width: 760px) {
+  .dashboard-hero { flex-direction: column; align-items: stretch; }
+}
+.hero-score-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+.hero-details-panel {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* CSS Radial Progress */
+.radial-progress {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: conic-gradient(var(--fill-color, var(--accent)) var(--progress, 0%), var(--border) 0%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+}
+.radial-progress::before {
+  content: "";
+  position: absolute;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  background: var(--card);
+}
+.radial-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+.radial-score {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--text);
+}
+.radial-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.radial-progress.safe { --fill-color: var(--success); }
+.radial-progress.suspicious { --fill-color: var(--warning); }
+.radial-progress.phishing { --fill-color: var(--danger); }
+
+/* Provider Badges & Grids */
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+.provider-card {
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.provider-card .name { font-weight: 600; font-size: 0.9rem; }
+.provider-card .status { font-size: 0.85rem; color: var(--muted); }
+.provider-card.safe { border-left: 4px solid var(--success); }
+.provider-card.suspicious { border-left: 4px solid var(--warning); }
+.provider-card.phishing { border-left: 4px solid var(--danger); }
+.provider-card.inactive { border-left: 4px solid var(--muted); opacity: 0.7; }
+
+/* Timeline / Milestones */
+.milestone-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.milestone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.5rem 0.8rem;
+  border-left: 2px solid var(--accent);
+  background: rgba(255,255,255,0.01);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+.milestone-label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; }
+.milestone-value { font-size: 0.9rem; font-weight: 600; font-family: 'SFMono-Regular', monospace; }
+
+/* Visual Factors List */
+.factors-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.factor-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+.factor-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+}
+.factor-icon.risk { background: var(--danger); }
+.factor-icon.trust { background: var(--success); }
+
+/* Chart Containers */
+.chart-container {
+  position: relative;
+  width: 100%;
+  min-height: 20px;
+}
+
+@media print {
+  .chart-container, canvas { display: none !important; }
+}
+
+/* Print fallback text handling */
+.print-only-text {
+  /* In standard web view, we can display this text block since the user requested:
+     "do not remove every textual of other information... every thing must be present along with the visual presentation"
+     However, to not clutter the composition, we can just let it display normally.
+  */
+}
+
+@media print {
+  .chart-container, canvas { display: none !important; }
+  .print-only-text { display: block !important; }
+}
